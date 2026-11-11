@@ -111,6 +111,7 @@ test('host tools already expose the native MCP names', () => {
     'update_node', 'delete_node',
     'get_graph_analytics', 'export_graph', 'get_graph_summary', 'search_text',
     'lineage', 'list_memory_cards', 'query_decisions', 'analyze_decision_impact', 'check_decision_rules',
+    'community_rag', 'schema_gate', 'trust_tiers', 'truth_maintenance', 'detect_value_conflicts',
   ]) {
     assert.match(src, new RegExp(`name: '${name}'`))
   }

@@ -222,6 +222,12 @@ def run_schema_gate(cwd: str, args: dict[str, Any] | None = None) -> dict[str, A
             predicates[str(name)] = Predicate(name=str(name))
     schema = ExtractionSchema(concepts=frozenset(str(x) for x in concepts), predicates=predicates)
     rows = args.get("entities") if isinstance(args.get("entities"), list) else []
+    if not rows:
+        from stores import read_node_rows
+        nodes, _st = read_node_rows(cwd)
+        rows = [{"text": str(row.get("content") or row.get("id") or ""), "label": str(row.get("type") or "Entity")} for row in nodes]
+        if not concepts or concepts == ["PERSON"]:
+            concepts = sorted({str(row.get("label") or "Entity") for row in rows if row.get("label")}) or ["Entity"]
     ents: list[Any] = []
     for row in rows:
         if isinstance(row, dict):
@@ -342,6 +348,10 @@ def run_detect_value_conflicts(cwd: str, args: dict[str, Any] | None = None) -> 
     args = args or {}
     from semantica.conflicts.conflict_detector import ConflictDetector
     data = args.get("data") if isinstance(args.get("data"), list) else args.get("entities") or []
+    if not data:
+        from stores import read_node_rows
+        nodes, _st = read_node_rows(cwd)
+        data = [{"id": str(row.get("id") or ""), "value": str(row.get("content") or "")} for row in nodes]
     prop = str(args.get("prop") or args.get("property") or "value")
     detector = ConflictDetector()
     found = detector.detect_value_conflicts(data, prop)

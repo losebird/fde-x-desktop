@@ -155,6 +155,11 @@ export async function handleProduct(req, res, url, opts) {
   if (pathname.startsWith(`${PREFIX}/api/annotations/`) && req.method === 'DELETE') {
     return serveExplorerAnnotationsDelete(req, res, url, pathname, authorize)
   }
+  if (pathname === `${PREFIX}/api/markdown` && req.method === 'GET') {
+    return serveAlignPython(req, res, url, sidecar, authorize, 'node_markdown', {
+      id: url.searchParams.get('id') || url.searchParams.get('node_id') || '',
+    })
+  }
   if (pathname === `${PREFIX}/api/memories` && req.method === 'GET') {
     return serveAlignPython(req, res, url, sidecar, authorize, 'list_memories', {
       skip: url.searchParams.get('skip') || url.searchParams.get('offset') || 0,

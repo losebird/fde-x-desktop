@@ -7782,6 +7782,7 @@ from align_ops import (
     run_enrich_extract,
     run_enrich_merge,
     run_list_memories,
+    run_node_markdown,
     run_store_memory,
     run_update_node,
 )
@@ -7853,6 +7854,7 @@ _FAST_READ_OPS = {
     "analytics_validation": run_analytics_validation,
     "list_memories": run_list_memories,
     "connector_status": run_connector_status,
+    "node_markdown": run_node_markdown,
 }
 
 

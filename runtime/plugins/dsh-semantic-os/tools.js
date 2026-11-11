@@ -281,6 +281,39 @@ const TOOLS = [
     parameters: {},
   },
   {
+    name: 'community_rag',
+    description: 'Community RAG over the workspace graph (Louvain clusters + retrieve). Optional query string q.',
+    parameters: { q: { type: 'string', description: 'Question to retrieve against communities' } },
+  },
+  {
+    name: 'schema_gate',
+    description: 'Filter extracted entities against an allowed concept list (schema gate).',
+    parameters: {
+      concepts: { type: 'string', description: 'Comma-separated allowed types, e.g. PERSON,Org' },
+    },
+  },
+  {
+    name: 'trust_tiers',
+    description: 'Compute a trust tier (GOLD/SILVER/…) from corroboration count and confidence.',
+    parameters: {
+      corroboration: { type: 'integer', description: 'Independent sources, default 2' },
+      confidence: { type: 'number', description: '0-1 optional' },
+    },
+  },
+  {
+    name: 'truth_maintenance',
+    description: 'Run a small TMS session: assert facts, explain whether a conclusion holds.',
+    parameters: {
+      facts: { type: 'string', description: 'Facts, one per line, e.g. Person(zhang)' },
+      explain: { type: 'string', description: 'Conclusion to explain' },
+    },
+  },
+  {
+    name: 'detect_value_conflicts',
+    description: 'Detect conflicting values for the same entity property on the current graph.',
+    parameters: { prop: { type: 'string', description: 'Property name, default value' } },
+  },
+  {
     name: 'temporal_snapshot',
     description: 'Time travel: list graph node ids valid at a moment (valid_from/valid_until). Optional recorded_as_of is the ledger write-time axis (bitemporal). Undated nodes stay visible. Memory 02 slider uses this.',
     parameters: {

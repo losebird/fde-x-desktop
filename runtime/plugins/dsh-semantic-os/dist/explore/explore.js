@@ -59613,7 +59613,7 @@ function r2e({
         /* @__PURE__ */ $.jsx("span", { style: { color: O, fontSize: 12, fontWeight: 700 }, children: x ? "Grouped Selection" : R?.nodeType || "Entity" })
       ] }),
       /* @__PURE__ */ $.jsx("h3", { style: { margin: 0, color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 20, fontWeight: 700, wordBreak: "break-word" }, children: String(R?.label ?? T) }),
-      /* @__PURE__ */ $.jsx("div", { style: { color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }, children: x ? t : T }),
+      /* @__PURE__ */ $.jsx("div", { "data-node-id": x ? t : T, style: { color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }, children: x ? t : T }),
       x ? /* @__PURE__ */ $.jsxs("div", { style: ZK, children: [
         /* @__PURE__ */ $.jsx("div", { style: { color: "var(--dsw-alias-label-primary, #1f2328)", fontWeight: 600, marginBottom: 6 }, children: "This grouped item stays display-level until you explicitly enter Focused mode." }),
         /* @__PURE__ */ $.jsx("div", { style: { color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 13, lineHeight: 1.6 }, children: i ? `Canonical node available: ${T}` : n ?? "Focused mode is unavailable for the current selection." })

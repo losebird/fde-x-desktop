@@ -13,6 +13,7 @@ const PLUGIN_TOOLS = new Set([
   'update_node', 'delete_node',
   'run_reasoning', 'get_graph_analytics', 'export_graph', 'get_graph_summary',
   'search_text', 'lineage', 'brief_for_decision', 'query_graph', 'route_intent',
+  'community_rag', 'schema_gate', 'trust_tiers', 'truth_maintenance', 'detect_value_conflicts',
   'export_ledger', 'backup_graph', 'restore_graph', 'erase_ledger',
   'upsert_workspace_vocab', 'nod_memory_card', 'nod_memory_edge', 'retire_memory_card',
   'source_memory_card', 'renew_memory_card', 'mute_health_kind',

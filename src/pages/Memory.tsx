@@ -39,7 +39,7 @@ const COVER_LABEL: Record<string, string> = {
   decision: '决策',
 }
 const OWN_CHROME = new Set(['io', 'admin'])
-const DRAWERS = ['entity', 'decision', 'health', 'lineage', 'find', 'import', 'export', 'registry', 'bridge', 'temporal'] as const
+const DRAWERS = ['entity', 'decision', 'health', 'lineage', 'find', 'import', 'export', 'registry', 'bridge', 'temporal', 'note', 'markdown', 'govern'] as const
 
 type CanvasId = (typeof CANVASES)[number]['id']
 type DrawerId = (typeof DRAWERS)[number]
@@ -109,10 +109,20 @@ function loadCanvasModule(id: CanvasId) {
   return import(/* @vite-ignore */ `/semantic-os/ws/${id}/${id}.js`)
 }
 
+const NODE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 function selectedNodeId(root: HTMLElement | null) {
   if (!root) return ''
-  const strong = root.querySelector('.explore-inspector-scroll strong, .explore-inspector-card h2, .explore-inspector-card h3')
-  return strong?.textContent?.trim() || ''
+  const marked = root.querySelector('[data-node-id], [data-graph-node-id]')
+  const fromAttr = marked?.getAttribute('data-node-id') || marked?.getAttribute('data-graph-node-id') || ''
+  if (fromAttr.trim()) return fromAttr.trim()
+  const inspector = root.querySelector('.explore-inspector-card, .explore-inspector-scroll, aside')
+  const blobs = inspector
+    ? [...inspector.querySelectorAll('div, code, pre, span')].map((el) => el.textContent?.trim() || '')
+    : []
+  const uuid = blobs.find((text) => NODE_ID_RE.test(text))
+  if (uuid) return uuid
+  return ''
 }
 
 async function semanticJson(path: string, init?: RequestInit) {
@@ -238,6 +248,8 @@ export default function Memory() {
       actions.push(
         { id: 'add-entity', label: '加实体', onClick: () => setDrawer('entity') },
         { id: 'temporal', label: '时序工具', onClick: () => setDrawer('temporal') },
+        { id: 'note', label: '批注', onClick: () => setDrawer('note') },
+        { id: 'markdown', label: '正文', onClick: () => setDrawer('markdown') },
         { id: 'copy-path', label: '复制出处', onClick: () => {
           const selected = selectedNodeId(hostRef.current)
           if (!selected) {
@@ -253,6 +265,9 @@ export default function Memory() {
             .catch(() => setDrawer('lineage'))
         } },
       )
+    }
+    if (pane === 'analyze') {
+      actions.push({ id: 'govern', label: '治理', onClick: () => setDrawer('govern') })
     }
     if (pane === 'decisions') {
       actions.push(
@@ -518,6 +533,9 @@ export default function Memory() {
             {drawer === 'registry' && <RegistryPanel cwd={cwd} />}
             {drawer === 'bridge' && <BridgePanel cwd={cwd} />}
             {drawer === 'temporal' && <TemporalPanel cwd={cwd} host={hostRef.current} />}
+            {drawer === 'note' && <NotePanel cwd={cwd} host={hostRef.current} />}
+            {drawer === 'markdown' && <MarkdownPanel cwd={cwd} host={hostRef.current} />}
+            {drawer === 'govern' && <GovernPanel cwd={cwd} />}
           </div>
         </aside>
       )}
@@ -741,6 +759,148 @@ function formatTemporalHuman(op: string, body: Record<string, unknown>): string 
   return '算完了。'
 }
 
+function NotePanel({ cwd, host }: { cwd: string; host: HTMLElement | null }) {
+  const picked = selectedNodeId(host)
+  const [nodeId, setNodeId] = useState(picked)
+  const [note, setNote] = useState('')
+  const [items, setItems] = useState<Array<Record<string, unknown>>>([])
+  const [err, setErr] = useState('')
+  const load = () => {
+    const q = new URLSearchParams({ cwd })
+    if (nodeId) q.set('node_id', nodeId)
+    void fetch(`/semantic-os/api/annotations?${q}`).then((r) => r.json()).then((body) => {
+      setItems(Array.isArray(body) ? body : [])
+      setErr('')
+    }).catch((cause) => setErr(cause instanceof Error ? cause.message : '批注读不出来'))
+  }
+  useEffect(() => { load() }, [cwd, nodeId])
+  const add = () => {
+    void fetch(`/semantic-os/api/annotations?cwd=${encodeURIComponent(cwd)}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ cwd, node_id: nodeId, content: note }),
+    }).then((r) => r.json()).then((body) => {
+      if (body?.error) throw new Error(String(body.error))
+      setNote('')
+      load()
+    }).catch((cause) => setErr(cause instanceof Error ? cause.message : '没写上'))
+  }
+  const remove = (id: string) => {
+    void fetch(`/semantic-os/api/annotations/${encodeURIComponent(id)}?cwd=${encodeURIComponent(cwd)}`, { method: 'DELETE' })
+      .then(() => load())
+      .catch((cause) => setErr(cause instanceof Error ? cause.message : '没删掉'))
+  }
+  return (
+    <form className="flex flex-col gap-3 text-sm" onSubmit={(e) => e.preventDefault()}>
+      <p className="text-xs text-ink-muted">钉在某个节点上的便利贴。不改图里的事实。</p>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-ink-muted">节点</span>
+        <input className="input w-full" value={nodeId} onChange={(e) => setNodeId(e.target.value)} placeholder="图上的节点 id" />
+      </label>
+      <textarea className="input w-full min-h-[4rem]" value={note} onChange={(e) => setNote(e.target.value)} placeholder="写一句批注" />
+      <button type="button" className="btn-primary" disabled={!nodeId || !note.trim()} onClick={add}>钉上</button>
+      {err && <div className="text-xs text-accent-red">{err}</div>}
+      <ul className="flex flex-col gap-2">
+        {items.map((row) => {
+          const id = String(row.annotation_id || row.id || '')
+          return (
+            <li key={id} className="border border-line rounded p-2 text-xs">
+              <div className="whitespace-pre-wrap">{String(row.content || row.note || '')}</div>
+              <button type="button" className="btn mt-1" onClick={() => remove(id)}>删掉</button>
+            </li>
+          )
+        })}
+      </ul>
+      {items.length === 0 && <div className="text-xs text-ink-muted">这个节点还没有批注。</div>}
+    </form>
+  )
+}
+
+function MarkdownPanel({ cwd, host }: { cwd: string; host: HTMLElement | null }) {
+  const picked = selectedNodeId(host)
+  const [nodeId, setNodeId] = useState(picked)
+  const [body, setBody] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const load = () => {
+    if (!nodeId) return
+    setBusy(true)
+    setErr('')
+    void fetch(`/semantic-os/api/markdown?cwd=${encodeURIComponent(cwd)}&id=${encodeURIComponent(nodeId)}`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.error) {
+          if (data.error === 'NO_NODE') throw new Error('图上找不到这个节点。请点选图上的点，或填节点 id。')
+          if (data.error === 'AMBIGUOUS') throw new Error('这个标题对应多条，请填节点 id。')
+          throw new Error(String(data.error))
+        }
+        setBody(String(data.body || ''))
+      })
+      .catch((cause) => setErr(cause instanceof Error ? cause.message : '正文读不出来'))
+      .finally(() => setBusy(false))
+  }
+  useEffect(() => { load() }, [cwd, nodeId])
+  return (
+    <form className="flex flex-col gap-3 text-sm" onSubmit={(e) => e.preventDefault()}>
+      <p className="text-xs text-ink-muted">把当前节点写成可读正文。不改图。</p>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs text-ink-muted">节点</span>
+        <input className="input w-full" value={nodeId} onChange={(e) => setNodeId(e.target.value)} placeholder="图上的节点 id" />
+      </label>
+      <button type="button" className="btn" disabled={busy || !nodeId} onClick={load}>重读</button>
+      {err && <div className="text-xs text-accent-red">{err}</div>}
+      {body && <pre className="text-xs whitespace-pre-wrap break-all border border-line rounded p-2 bg-surface">{body}</pre>}
+    </form>
+  )
+}
+
+function GovernPanel({ cwd }: { cwd: string }) {
+  const [q, setQ] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+  const [out, setOut] = useState('')
+  const run = (op: string, args: Record<string, unknown> = {}) => {
+    setBusy(true)
+    setErr('')
+    setOut('')
+    void runtimeApi.semanticPython(op, args, cwd).then((body) => {
+      setOut(formatGovern(op, body))
+    }).catch((cause) => setErr(cause instanceof Error ? cause.message : '没算出来')).finally(() => setBusy(false))
+  }
+  return (
+    <form className="flex flex-col gap-3 text-sm" onSubmit={(e) => e.preventDefault()}>
+      <p className="text-xs text-ink-muted">社区检索、模式闸门、信任档、真值维护、值冲突。都跑当前工作区的图。</p>
+      <input className="input w-full" value={q} onChange={(e) => setQ(e.target.value)} placeholder="社区检索要问的一句" />
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-primary" disabled={busy} onClick={() => run('community_rag', { q })}>社区检索</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => run('schema_gate', {})}>模式闸门</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => run('trust_tiers', { corroboration: 2, confidence: 0.8 })}>信任档</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => run('truth_maintenance', {})}>真值维护</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => run('detect_value_conflicts', { prop: 'value' })}>值冲突</button>
+      </div>
+      {err && <div className="text-xs text-accent-red">{err}</div>}
+      {out && <div className="text-sm whitespace-pre-wrap break-all border border-line rounded p-2 bg-surface">{out}</div>}
+    </form>
+  )
+}
+
+function formatGovern(op: string, body: Record<string, unknown>): string {
+  if (body?.ok === false) return `没算出来：${String(body.error || '')}`
+  if (op === 'community_rag') return `扫到 ${Number(body.community_count || 0)} 个社区。`
+  if (op === 'schema_gate') {
+    const kept = Array.isArray(body.kept) ? body.kept.length : 0
+    const dropped = Array.isArray(body.dropped) ? body.dropped.length : 0
+    return `闸门留下 ${kept} 条，丢掉 ${dropped} 条。`
+  }
+  if (op === 'trust_tiers') return `信任档：${String(body.tier || '')}。`
+  if (op === 'truth_maintenance') return body.holds ? '这条结论现在成立。' : '这条结论现在不成立。'
+  if (op === 'detect_value_conflicts') {
+    const n = Array.isArray(body.conflicts) ? body.conflicts.length : 0
+    return n ? `扫到 ${n} 处值冲突。` : '没有扫到值冲突。'
+  }
+  return '算完了。'
+}
+
 function TemporalPanel({ cwd, host }: { cwd: string; host: HTMLElement | null }) {
   const picked = selectedNodeId(host)
   const [id1, setId1] = useState(picked)
@@ -790,6 +950,9 @@ function drawerTitle(id: DrawerId) {
     registry: '词表登记',
     bridge: '工作区桥接',
     temporal: '时序工具',
+    note: '批注',
+    markdown: '正文',
+    govern: '治理',
   }
   return labels[id]
 }

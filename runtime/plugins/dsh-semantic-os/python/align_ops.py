@@ -335,6 +335,61 @@ def run_enrich_merge(cwd: str, args: dict[str, Any] | None = None) -> dict[str, 
     }
 
 
+def resolve_graph_node(cwd: str, needle: str) -> dict[str, Any]:
+    text = str(needle or "").strip()
+    if not text:
+        return {"ok": False, "error": "NO_PATH"}
+    row = graph_store.read_one(cwd, text)
+    if isinstance(row, dict):
+        return {"ok": True, "row": row, "id": str(row.get("id") or text)}
+    nodes, _edges = graph_store.read_all(cwd)
+    hits: list[dict[str, Any]] = []
+    for item in nodes.values():
+        if not isinstance(item, dict):
+            continue
+        props = item.get("properties") if isinstance(item.get("properties"), dict) else {}
+        labels = {
+            str(item.get("id") or ""),
+            str(item.get("content") or ""),
+            str(props.get("label") or ""),
+            str(props.get("scenario") or ""),
+            str(props.get("outcome") or ""),
+        }
+        if text in labels:
+            hits.append(item)
+    if len(hits) == 1:
+        found = hits[0]
+        return {"ok": True, "row": found, "id": str(found.get("id") or "")}
+    if len(hits) > 1:
+        return {"ok": False, "error": "AMBIGUOUS", "id": text, "count": len(hits)}
+    return {"ok": False, "error": "NO_NODE", "id": text}
+
+
+def run_node_markdown(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
+    args = args or {}
+    nid = str(args.get("id") or args.get("node_id") or "").strip()
+    found = resolve_graph_node(cwd, nid)
+    if not found.get("ok"):
+        return found
+    row = found["row"]
+    real_id = str(found.get("id") or nid)
+    props = row.get("properties") if isinstance(row.get("properties"), dict) else {}
+    title = str(row.get("content") or props.get("label") or props.get("scenario") or real_id)
+    lines = [f"# {title}", ""]
+    kind = str(row.get("type") or "")
+    if kind:
+        lines.append(f"- 类型：{kind}")
+    lines.append(f"- id：{real_id}")
+    for key, value in sorted(props.items()):
+        if key in {"content", "label", "scenario"}:
+            continue
+        if value in (None, ""):
+            continue
+        lines.append(f"- {key}：{value}")
+    body = "\n".join(lines).strip() + "\n"
+    return {"ok": True, "id": real_id, "kind": "node", "body": body, "source": "graph", "editable": False}
+
+
 def run_list_memories(cwd: str, args: dict[str, Any] | None = None) -> dict[str, Any]:
     args = args or {}
     try:

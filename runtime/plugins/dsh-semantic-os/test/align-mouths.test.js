@@ -325,6 +325,30 @@ print(json.dumps({
   }
 })
 
+test('node markdown GET is not NO_EXPLORER', { timeout: 180000 }, async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'dsos-md-'))
+  try {
+    py(`
+import sys
+sys.path.insert(0, "python")
+import graph_store
+graph_store.put_node(${JSON.stringify(cwd)}, {"id": "n1", "type": "Person", "content": "甲", "properties": {"note": "hello"}})
+`)
+    const denied = await product('GET', '/semantic-os/api/markdown?id=n1', { cwd: '/private/foreign', allow: false })
+    assert.equal(denied.status, 403)
+    const got = await product('GET', '/semantic-os/api/markdown?id=n1', { cwd })
+    assert.equal(got.status, 200)
+    assert.notEqual(got.body.error, 'NO_EXPLORER')
+    assert.match(String(got.body.body || ''), /# 甲/)
+    assert.match(String(got.body.body || ''), /hello/)
+    const byTitle = await product('GET', `/semantic-os/api/markdown?id=${encodeURIComponent('甲')}`, { cwd })
+    assert.equal(byTitle.status, 200)
+    assert.match(String(byTitle.body.body || ''), /id：n1/)
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})
+
 test('durable annotations survive list after add', async () => {
   const cwd = mkdtempSync(join(tmpdir(), 'dsos-ann-'))
   try {

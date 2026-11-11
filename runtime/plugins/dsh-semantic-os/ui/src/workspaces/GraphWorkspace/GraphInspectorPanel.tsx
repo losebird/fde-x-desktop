@@ -378,7 +378,7 @@ export function GraphInspectorPanel({
         <h3 style={{ margin: 0, color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 20, fontWeight: 700, wordBreak: "break-word" }}>
           {String(attributes?.label ?? effectiveNodeId)}
         </h3>
-        <div style={{ color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }}>
+        <div data-node-id={groupedDisplaySelection ? nodeId : effectiveNodeId} style={{ color: "var(--dsw-alias-label-primary, #1f2328)", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }}>
           {groupedDisplaySelection ? nodeId : effectiveNodeId}
         </div>
         {groupedDisplaySelection ? (
