@@ -137,6 +137,23 @@ const FA2_SETTINGS = {
   },
 };
 
+function forceAtlasSettingsForOrder(order: number) {
+  if (order < 80) {
+    return FA2_SETTINGS;
+  }
+  return {
+    iterations: FA2_SETTINGS.iterations,
+    settings: {
+      ...FA2_SETTINGS.settings,
+      adjustSizes: true,
+      gravity: 0.045,
+      scalingRatio: 16,
+      outboundAttractionDistribution: true,
+      slowDown: 24,
+    },
+  };
+}
+
 const FULL_GRAPH_LAYOUT_SETTLE_MS = 4_500;
 
 const GROUPED_FA2_SETTINGS = {
@@ -2438,7 +2455,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         fa2Ref.current?.kill();
         const nextLayout = new FA2Layout(
           layoutTargetGraph,
-          usingGroupedOwnedLayout ? GROUPED_FA2_SETTINGS : FA2_SETTINGS,
+          usingGroupedOwnedLayout
+            ? GROUPED_FA2_SETTINGS
+            : forceAtlasSettingsForOrder(layoutTargetGraph.order),
         ) as FA2Layout & { __targetKey?: string };
         nextLayout.__targetKey = targetKey;
         fa2Ref.current = nextLayout;

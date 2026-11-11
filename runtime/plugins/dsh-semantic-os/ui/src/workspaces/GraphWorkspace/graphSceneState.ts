@@ -1551,6 +1551,12 @@ export function shouldForceNodeLabel(
   attrs: NodeAttributes,
   labelPriority: number,
 ): boolean {
+  // Hover already draws the title+type card. A second chip lands on the same
+  // upper-right slot and reads as squeezed duplicate text.
+  if (state === "hovered") {
+    return false;
+  }
+
   const tierConfig = theme.zoomTiers[zoomTier];
   const forceVisibleState = theme.labels.forceVisibleStates.includes(state);
   const policy = attrs.labelVisibilityPolicy || "priority";

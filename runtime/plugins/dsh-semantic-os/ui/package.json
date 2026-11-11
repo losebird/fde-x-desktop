@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test:graph-store": "node --test tests/graphStore.multi-edge.test.mjs",
-    "test:graph-workspace": "node --import tsx --test tests/graphSceneState.display.test.ts",
+    "test:graph-workspace": "node --import tsx --test tests/graphSceneState.display.test.ts tests/graphSceneLayers.labels.test.ts",
     "test:plugin-registry": "node --import tsx --test tests/pluginRegistry.temporal.test.mjs",
     "build:dsh": "vite build --config vite.dsh.config.ts && DSH_WS=analyze vite build --config vite.dsh.config.ts && DSH_WS=decisions vite build --config vite.dsh.config.ts && DSH_WS=io vite build --config vite.dsh.config.ts && DSH_WS=ontology vite build --config vite.dsh.config.ts && DSH_WS=admin vite build --config vite.dsh.config.ts"
   },

@@ -105,8 +105,14 @@ html,body,#root{height:100%!important;max-height:100%!important;overflow:hidden!
 .dsos-onto-hub{background:var(--dsw-alias-bg-base,#fff)!important;color:var(--dsw-alias-label-primary)!important;font-size:14px}.dsos-onto-hub [style*="uppercase"],.dsos-onto-hub [style*="letter-spacing"]{color:var(--dsw-alias-label-primary)!important;opacity:1!important;font-size:12px!important}.dsos-onto-hub h1,.dsos-onto-hub h2,.dsos-onto-hub h3,.dsos-onto-hub h4,.dsos-onto-hub p,.dsos-onto-hub label,.dsos-onto-hub span,.dsos-onto-hub button,.dsos-onto-hub a{color:var(--dsw-alias-label-primary)!important}.dsos-onto-hub input,.dsos-onto-hub select,.dsos-onto-hub textarea{color:var(--dsw-alias-label-primary)!important;background:var(--dsw-alias-bg-layer-1,#f6f8fa)!important}
 .dsos-onto-hub input,.dsos-onto-hub select,.dsos-onto-hub textarea{background:var(--dsw-alias-bg-layer-1,#f6f8fa)!important;color:var(--dsw-alias-label-primary)!important;border-color:var(--dsw-alias-border-l2)!important}
 
-.palantir-bg,.palantir-grid,.explore-shell,.explore-scene-stage,.explore-scene-card,.explore-scene-stack{
+.explore-shell{
   background:var(--dsw-alias-bg-base)!important;
+}
+.dsh-explore-host .palantir-grid,
+.dsh-explore-host .explore-scene-stage,
+.dsh-explore-host .explore-scene-card,
+.dsh-explore-host .explore-scene-stack{
+  background:transparent!important;
 }
 .palantir-vignette{opacity:0!important;background:none!important}
 .explore-scene-footer,.explore-toolbar,.explore-search-command,.explore-tool-cluster,.explore-plugin-dock-tab,.explore-inspector-shell,.explore-inspector-card,.explore-workflow-bar,.explore-status-strip{
@@ -148,29 +154,30 @@ html,body,#root{height:100%!important;max-height:100%!important;overflow:hidden!
   color:var(--dsw-alias-label-primary)!important;
   border-color:var(--dsw-alias-border-l2)!important;
 }
-.dsh-explore-host .explore-scene-shell { flex: 1 1 auto !important; min-height: 220px !important; }
+.dsh-explore-host .explore-scene-shell { flex: 1 1 auto !important; min-height: 180px !important; }
 .dsh-explore-host .explore-plugin-dock {
   flex: 0 0 auto !important;
-  height: auto !important;
-  max-height: 220px !important;
-  min-height: 0 !important;
+  height: min(52vh, 520px) !important;
+  max-height: min(52vh, 520px) !important;
+  min-height: 280px !important;
 }
 .dsh-explore-host .explore-scene-footer { flex: 0 0 auto !important; }
 
 .dsh-explore-host .explore-plugin-dock-card,
 .dsh-explore-host .explore-plugin-dock-stack {
-  flex: 0 1 auto !important;
-  height: auto !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
   min-height: 0 !important;
-  max-height: 220px !important;
+  max-height: none !important;
 }
 .dsh-explore-host .explore-plugin-dock-body {
-  flex: 0 1 auto !important;
-  max-height: 160px !important;
+  flex: 1 1 auto !important;
+  max-height: none !important;
+  min-height: 200px !important;
   overflow: auto !important;
 }
 
-.react-flow,.react-flow__node-default,.react-flow__controls,.react-flow__minimap{
+.react-flow,.react-flow__controls,.react-flow__minimap{
   background:var(--dsw-alias-bg-base)!important;
   color:var(--dsw-alias-label-primary)!important;
 }

@@ -24,6 +24,8 @@ import {
   resolveDisplayGraph,
   resolveGroupedDisplayNodeId,
   resolveGroupedDisplayStateSnapshot,
+  resolveNodeElementStyle,
+  shouldForceNodeLabel,
   summarizeDistanceBuckets,
 } from "../src/workspaces/GraphWorkspace/graphSceneState.ts";
 import {
@@ -1059,5 +1061,25 @@ test("checkGroupedViewAvailability returns available when communities exist", ()
   const result = checkGroupedViewAvailability();
   assert.equal(result.available, true);
   assert.equal(result.reason, null);
+});
+
+test("hovered nodes skip the Sigma chip so it does not stack on the hover card", () => {
+  const attrs = {
+    label: "供应商",
+    content: "供应商",
+    x: 0,
+    y: 0,
+    size: 4,
+    color: "#0969da",
+    nodeType: "skos:Concept",
+    properties: {},
+  };
+  assert.equal(shouldForceNodeLabel(GRAPH_THEME, "overview", "hovered", attrs, 1), false);
+  const hovered = resolveNodeElementStyle(GRAPH_THEME, "overview", "hovered", attrs, "供应商", 1);
+  const selected = resolveNodeElementStyle(GRAPH_THEME, "overview", "selected", attrs, "供应商", 1);
+  assert.equal(hovered.forceLabel, false);
+  assert.equal(hovered.label, "");
+  assert.equal(selected.forceLabel, true);
+  assert.equal(selected.label, "供应商");
 });
 

@@ -544,9 +544,9 @@ const HUD_CSS = `
   .explore-plugin-dock {
     position: relative;
     z-index: 3;
-    height: min(46vh, 400px);
-    max-height: min(46vh, 400px);
-    min-height: 0;
+    height: min(52vh, 520px);
+    max-height: min(52vh, 520px);
+    min-height: 280px;
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -2266,6 +2266,14 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, hostAc
             }
             return previous === action.panelId ? null : previous;
           });
+          if (nextOpen && action.panelId === "effects-panel") {
+            setEffectsState((effects) => ({
+              ...effects,
+              communitiesEnabled: true,
+              centralityEnabled: true,
+              legendEnabled: true,
+            }));
+          }
           return {
             ...current,
             [action.panelId]: nextOpen,

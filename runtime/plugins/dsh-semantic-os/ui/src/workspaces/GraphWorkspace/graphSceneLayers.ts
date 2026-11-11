@@ -220,6 +220,10 @@ function isolateDominantMask(
   let sumX = 0;
   let sumY = 0;
   let sumWeight = 0;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
   bestPixels.forEach((index) => {
     dominantMask[index] = 1;
     const alpha = alphaValues[index];
@@ -228,6 +232,10 @@ function isolateDominantMask(
     sumX += x * alpha;
     sumY += y * alpha;
     sumWeight += alpha;
+    minX = Math.min(minX, x);
+    minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x);
+    maxY = Math.max(maxY, y);
   });
 
   return {
@@ -236,6 +244,9 @@ function isolateDominantMask(
     centroid: sumWeight > 0
       ? { x: sumX / sumWeight, y: sumY / sumWeight }
       : { x: width / 2, y: height / 2 },
+    bounds: bestPixels.length > 0
+      ? { minX, minY, maxX, maxY }
+      : { minX: 0, minY: 0, maxX: width, maxY: height },
     occupancyRatio: bestPixels.length / Math.max(width * height, 1),
     dominantMassRatio: bestPixels.length / Math.max(totalCount, 1),
   };
@@ -430,6 +441,85 @@ export function collectVisibleNodeSamples(
   return samples;
 }
 
+export type RegionLabelObstacle = {
+  x: number;
+  y: number;
+  radius: number;
+};
+
+export function truncateRegionLabel(text: string): string {
+  return text.length > 22 ? `${text.slice(0, 21)}…` : text;
+}
+
+export type RegionLabelBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+export function placeRegionLabel(
+  centroid: ViewportPoint,
+  box: { width: number; height: number },
+  obstacles: RegionLabelObstacle[],
+  bounds?: RegionLabelBounds,
+): ViewportPoint | null {
+  const clearance = 18;
+  const lift = box.height / 2 + 18;
+  const midX = bounds ? (bounds.minX + bounds.maxX) / 2 : centroid.x;
+  const midY = bounds ? (bounds.minY + bounds.maxY) / 2 : centroid.y;
+  const candidates: ViewportPoint[] = bounds
+    ? [
+      { x: midX, y: bounds.minY - lift },
+      { x: bounds.minX + box.width / 2, y: bounds.minY - lift },
+      { x: bounds.maxX - box.width / 2, y: bounds.minY - lift },
+      { x: bounds.minX - box.width / 2 - 16, y: midY },
+      { x: bounds.maxX + box.width / 2 + 16, y: midY },
+      { x: midX, y: bounds.maxY + lift },
+    ]
+    : [
+      { x: centroid.x, y: centroid.y - box.height - 28 },
+      { x: centroid.x, y: centroid.y - box.height - 56 },
+      { x: centroid.x + box.width * 0.72, y: centroid.y - box.height - 36 },
+      { x: centroid.x - box.width * 0.72, y: centroid.y - box.height - 36 },
+      { x: centroid.x, y: centroid.y + box.height + 32 },
+    ];
+
+  const collides = (cx: number, cy: number) => {
+    const left = cx - box.width / 2;
+    const right = cx + box.width / 2;
+    const top = cy - box.height / 2;
+    const bottom = cy + box.height / 2;
+    return obstacles.some((obstacle) => {
+      const nearestX = Math.max(left, Math.min(obstacle.x, right));
+      const nearestY = Math.max(top, Math.min(obstacle.y, bottom));
+      const dx = obstacle.x - nearestX;
+      const dy = obstacle.y - nearestY;
+      const limit = obstacle.radius + clearance;
+      return dx * dx + dy * dy < limit * limit;
+    });
+  };
+
+  return candidates.find((candidate) => !collides(candidate.x, candidate.y)) ?? null;
+}
+
+function collectRegionLabelObstacles(
+  visibleNodes: VisibleNodeSample[],
+  interactionState: GraphInteractionState,
+): RegionLabelObstacle[] {
+  return visibleNodes.map((sample) => {
+    const focused = sample.nodeId === interactionState.hoveredNodeId
+      || sample.nodeId === interactionState.selectedNodeId
+      || interactionState.activePath.includes(sample.nodeId);
+    const badgePad = sample.attrs.badgeKind ? 12 : 0;
+    return {
+      x: sample.point.x,
+      y: sample.point.y,
+      radius: sample.size + badgePad + (focused ? 52 : 16),
+    };
+  });
+}
+
 function drawRegionLabel(
   context: CanvasRenderingContext2D,
   x: number,
@@ -437,24 +527,25 @@ function drawRegionLabel(
   text: string,
   color: string,
 ) {
-  const label = text.length > 22 ? `${text.slice(0, 21)}…` : text;
+  const chip = GRAPH_THEME.labels.chip;
+  const label = truncateRegionLabel(text);
   context.save();
-  context.font = `600 11px "IBM Plex Sans", Inter, system-ui, sans-serif`;
+  context.font = `600 11px ${chip.fontFamily}`;
   context.textBaseline = "middle";
   const width = context.measureText(label).width + 14;
   const height = 22;
   const left = x - width / 2;
   const top = y - height / 2;
 
-  context.fillStyle = "rgba(8, 14, 24, 0.84)";
-  context.strokeStyle = withAlpha(color, 0.24);
+  context.fillStyle = chip.background;
+  context.strokeStyle = withAlpha(color, Math.max(chip.borderAlpha, 0.28));
   context.lineWidth = 1;
   context.beginPath();
-  context.roundRect(left, top, width, height, 999);
+  context.roundRect(left, top, width, height, height / 2);
   context.fill();
   context.stroke();
 
-  context.fillStyle = "rgba(235, 244, 255, 0.88)";
+  context.fillStyle = chip.textColor;
   context.fillText(label, left + 7, y);
   context.restore();
 }
@@ -581,15 +672,38 @@ export function drawSemanticRegionsLayer(
     );
 
     if (summary.visibleNodeCount >= 18) {
-      const labelX = dominantDensityMask.centroid.x / densityField.scale;
-      const labelY = dominantDensityMask.centroid.y / densityField.scale - 18;
-      drawRegionLabel(
-        context,
-        labelX,
-        labelY,
-        summary.semanticGroup,
-        colors.labelBorderColor,
+      const scale = densityField.scale;
+      const centroid = {
+        x: dominantDensityMask.centroid.x / scale,
+        y: dominantDensityMask.centroid.y / scale,
+      };
+      const bounds = {
+        minX: dominantDensityMask.bounds.minX / scale,
+        minY: dominantDensityMask.bounds.minY / scale,
+        maxX: dominantDensityMask.bounds.maxX / scale,
+        maxY: dominantDensityMask.bounds.maxY / scale,
+      };
+      const chip = GRAPH_THEME.labels.chip;
+      const label = truncateRegionLabel(summary.semanticGroup);
+      context.save();
+      context.font = `600 11px ${chip.fontFamily}`;
+      const width = context.measureText(label).width + 14;
+      context.restore();
+      const placed = placeRegionLabel(
+        centroid,
+        { width, height: 22 },
+        collectRegionLabelObstacles(visibleNodes, interactionState),
+        bounds,
       );
+      if (placed) {
+        drawRegionLabel(
+          context,
+          placed.x,
+          placed.y,
+          summary.semanticGroup,
+          colors.labelBorderColor,
+        );
+      }
     }
   });
 }

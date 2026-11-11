@@ -226,26 +226,26 @@
   color: var(--dsw-alias-label-primary, #1f2328) !important;
 }
 
-/* Plugin dock is a short bottom drawer — never steal the graph. */
-.dsh-explore-host .explore-scene-shell { flex: 1 1 auto !important; min-height: 220px !important; }
+.dsh-explore-host .explore-scene-shell { flex: 1 1 auto !important; min-height: 180px !important; }
 .dsh-explore-host .explore-plugin-dock {
   flex: 0 0 auto !important;
-  height: auto !important;
-  max-height: 220px !important;
-  min-height: 0 !important;
+  height: min(52vh, 520px) !important;
+  max-height: min(52vh, 520px) !important;
+  min-height: 280px !important;
 }
 .dsh-explore-host .explore-scene-footer { flex: 0 0 auto !important; }
 
 .dsh-explore-host .explore-plugin-dock-card,
 .dsh-explore-host .explore-plugin-dock-stack {
-  flex: 0 1 auto !important;
-  height: auto !important;
+  flex: 1 1 auto !important;
+  height: 100% !important;
   min-height: 0 !important;
-  max-height: 220px !important;
+  max-height: none !important;
 }
 .dsh-explore-host .explore-plugin-dock-body {
-  flex: 0 1 auto !important;
-  max-height: 160px !important;
+  flex: 1 1 auto !important;
+  max-height: none !important;
+  min-height: 200px !important;
   overflow: auto !important;
 }
 
