@@ -31,6 +31,7 @@ import {
 export { readMcpArchiveText, parseMcpPatchEntries }
 
 const SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,32}$/u
+const STDIO_HEALTH_TIMEOUT_MS = 20_000
 
 export async function resolveMcpProjectionSession(aiRuntime, input = {}) {
   return resolvePrimarySessionForRuntime(aiRuntime, input)
@@ -607,7 +608,7 @@ function initializeBody() {
   }
 }
 
-async function probeMcpStdioInitialize(entry, timeoutMs = 8000) {
+async function probeMcpStdioInitialize(entry, timeoutMs = STDIO_HEALTH_TIMEOUT_MS) {
   const command = String(entry.command || '').trim()
   const absolute = command.startsWith('/') || /^[A-Za-z]:[\\/]/.test(command)
   const resolved = await resolveExecutable(command)
@@ -724,18 +725,20 @@ export async function resolveExecutable(command) {
       return ''
     }
   }
+  const resources = process.env.FDE_RESOURCES || FDE_RESOURCES
   const pathEnv = desktopProcessPath({
-    resources: process.env.FDE_RESOURCES || FDE_RESOURCES,
+    resources,
     inheritedPath: process.env.PATH || '',
   })
-  for (const dir of pathEnv.split(delimiter)) {
-    if (!dir) continue
-    const candidate = join(dir, raw)
+  const bundled = join(resources, 'node', 'bin', raw)
+  const ordered = [bundled, ...pathEnv.split(delimiter).map((dir) => (dir ? join(dir, raw) : ''))]
+  for (const candidate of ordered) {
+    if (!candidate) continue
     try {
       await access(candidate, constants.X_OK)
       return candidate
     } catch {
-      /* next PATH entry */
+      /* next */
     }
   }
   return ''

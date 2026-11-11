@@ -43,7 +43,7 @@ test('tickDueSoon fires once per task due stamp', async () => {
   await rm(`${dbPath}-shm`, { force: true }).catch(() => {})
 })
 
-test('tickMcpHealth notifies only on falling edge', async () => {
+test('tickMcpHealth notifies only after two consecutive drops', async () => {
   const state = new Map()
   const events = []
   const emitFn = (type, payload) => events.push({ type, payload })
@@ -54,8 +54,30 @@ test('tickMcpHealth notifies only on falling edge', async () => {
   assert.equal(events.length, 0)
   await tickMcpHealth({ listEntries: async () => entries, checkHealth: up, state, emitFn })
   await tickMcpHealth({ listEntries: async () => entries, checkHealth: down, state, emitFn })
+  assert.equal(events.length, 0)
+  await tickMcpHealth({ listEntries: async () => entries, checkHealth: down, state, emitFn })
   assert.equal(events.length, 1)
   assert.equal(events[0].payload.serverName, 'playwright')
   await tickMcpHealth({ listEntries: async () => entries, checkHealth: down, state, emitFn })
   assert.equal(events.length, 1)
+})
+
+test('tickMcpHealth skips spawn when Host already loaded the server', async () => {
+  const state = new Map([['sequential-thinking-1', { lastOk: true, failStreak: 0 }]])
+  const events = []
+  let probes = 0
+  const fired = await tickMcpHealth({
+    listEntries: async () => [{ serverName: 'sequential-thinking-1', command: 'npx' }],
+    checkHealth: async () => {
+      probes += 1
+      return { ok: false, message: 'timeout' }
+    },
+    loadedNames: new Set(['sequential-thinking-1']),
+    state,
+    emitFn: (type, payload) => events.push({ type, payload }),
+  })
+  assert.equal(probes, 0)
+  assert.deepEqual(fired, [])
+  assert.equal(events.length, 0)
+  assert.equal(state.get('sequential-thinking-1').lastOk, true)
 })

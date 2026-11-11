@@ -4,9 +4,12 @@ import { createId } from './db.mjs'
 import { workspaceCwdForId } from './briefing/workspace.mjs'
 import { emit } from './events.mjs'
 import { isMailProbeEntry } from './mail-providers.mjs'
+import { collectBag } from './catalog-collect.mjs'
 import { parseMcpPatchEntries, readMcpArchiveText } from './mcp-archive.mjs'
 import { checkMcpHealth } from './routes/mcp.mjs'
 import { setOsNotifyGates } from './os-notify.mjs'
+
+export const MCP_HEALTH_FAIL_STREAK = 2
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_GATES = { taskDueSoonNotify: true, mcpDownNotify: true }
@@ -71,35 +74,67 @@ export function tickDueSoon(db, { now = new Date(), emitFn = emit } = {}) {
   return fired
 }
 
+export async function hostLoadedMcpNames(aiRuntime) {
+  try {
+    if (!aiRuntime?.status || !aiRuntime.status()?.connected) return new Set()
+    const bag = await collectBag(aiRuntime, 'mcp', { sessionId: '', cwd: '' })
+    const rows = Array.isArray(bag?.raw?.mcp) ? bag.raw.mcp : []
+    return new Set(
+      rows
+        .filter((row) => row && row.status === 'loaded' && !row.disabled)
+        .map((row) => String(row.serverName || '').trim())
+        .filter(Boolean),
+    )
+  } catch {
+    return new Set()
+  }
+}
+
 export async function tickMcpHealth({
   listEntries,
   checkHealth = checkMcpHealth,
+  loadedNames,
   state,
   emitFn = emit,
+  failStreak = MCP_HEALTH_FAIL_STREAK,
 } = {}) {
   const entries = typeof listEntries === 'function' ? await listEntries() : []
+  const loaded = loadedNames instanceof Set ? loadedNames : new Set()
   const seen = new Set()
   const fired = []
+  const need = Number(failStreak) > 0 ? Number(failStreak) : MCP_HEALTH_FAIL_STREAK
   for (const entry of entries) {
     const name = String(entry?.serverName || '').trim()
-    if (!name || isMailProbeEntry(entry)) continue
+    if (!name || isMailProbeEntry(entry) || entry?.disabled) continue
     seen.add(name)
     let health
-    try {
-      health = await checkHealth(entry)
-    } catch (error) {
-      health = { ok: false, message: error instanceof Error ? error.message : String(error) }
+    if (loaded.has(name)) {
+      health = { ok: true, message: '核心已加载' }
+    } else {
+      try {
+        health = await checkHealth(entry)
+      } catch (error) {
+        health = { ok: false, message: error instanceof Error ? error.message : String(error) }
+      }
     }
     const ok = Boolean(health && health.ok)
-    const prev = state.get(name)
-    state.set(name, ok)
-    if (prev === true && ok === false) {
+    const prev = state.get(name) || { lastOk: false, failStreak: 0 }
+    if (ok) {
+      state.set(name, { lastOk: true, failStreak: 0 })
+      continue
+    }
+    const streak = (prev.failStreak || 0) + 1
+    const lastOk = Boolean(prev.lastOk)
+    if (lastOk && streak >= need) {
       emitFn('mcp.health.changed', {
         serverName: name,
         ok: false,
         message: String(health?.message || '连接失败'),
       }, { workspaceCwd: null })
       fired.push(name)
+      state.set(name, { lastOk: false, failStreak: streak })
+    } else {
+      state.set(name, { lastOk, failStreak: streak })
     }
   }
   for (const name of [...state.keys()]) {
@@ -155,6 +190,7 @@ export function startNotifyWatch({ db, aiRuntime, intervalMs = 60_000 } = {}) {
       tickDueSoon(db)
       await tickMcpHealth({
         state: mcpState,
+        loadedNames: await hostLoadedMcpNames(aiRuntime),
         listEntries: async () => parseMcpPatchEntries(await readMcpArchiveText(aiRuntime)),
       })
     } catch (error) {
