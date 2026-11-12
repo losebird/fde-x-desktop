@@ -196,6 +196,23 @@ test('itemsFromToolResult unwraps markdown titles in a collection', () => {
   assert.equal(items[0].href, 'https://aihot.news/x')
 })
 
+test('harvestTurnToolResults announces ready on the first follow frame', async () => {
+  let ready = false
+  const aiRuntime = {
+    async *stream() {
+      yield { type: 'snapshot', records: [] }
+      yield { type: 'event', event: { type: 'turn/start', data: { turn: 1 } } }
+      yield { type: 'event', event: { type: 'turn/end', data: { turn: 1 } } }
+    },
+  }
+  const harvest = await harvestTurnToolResults(aiRuntime, 'sess', {
+    timeoutMs: 1000,
+    onReady: () => { ready = true },
+  })
+  assert.equal(ready, true)
+  assert.equal(harvest.ended, true)
+})
+
 test('harvestTurnToolResults keeps this-turn last result per tool', async () => {
   const aiRuntime = {
     async *stream(endpoint) {
@@ -243,6 +260,29 @@ test('harvest ignores a stale NO_ADAPTER turn/end before this turn/start', async
   const harvest = await harvestTurnToolResults(aiRuntime, 'sess', { timeoutMs: 1000, requestId: 'brq_now' })
   assert.equal(harvest.ended, true)
   assert.equal(harvest.turnFailure, null)
+})
+
+test('harvest accepts a host requestId that differs from the briefing brq id', async () => {
+  const aiRuntime = {
+    async *stream() {
+      yield { type: 'event', event: { type: 'turn/start', data: { requestId: 'host-uuid-1', turn: 9 } } }
+      yield { type: 'event', event: { type: 'tool/call', data: { name: 'fde_briefing_submit', callId: 'c9', requestId: 'host-uuid-1' } } }
+      yield {
+        type: 'event',
+        event: {
+          type: 'tool/result',
+          data: {
+            requestId: 'host-uuid-1',
+            message: { source: { callId: 'c9' }, content: [{ type: 'text', text: '{"ok":true}' }] },
+          },
+        },
+      }
+      yield { type: 'event', event: { type: 'turn/end', data: { requestId: 'host-uuid-1', turn: 9 } } }
+    },
+  }
+  const harvest = await harvestTurnToolResults(aiRuntime, 'sess', { timeoutMs: 1000, requestId: 'brq_now' })
+  assert.equal(harvest.ended, true)
+  assert.equal(Boolean(harvest.byTool.fde_briefing_submit), true)
 })
 
 test('harvest ends on a matching requestId turn/end even without turn/start', async () => {

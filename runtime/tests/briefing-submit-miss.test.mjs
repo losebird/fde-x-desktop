@@ -23,7 +23,7 @@ if (!yamlDirs.some((dir) => existsSync(join(dir, 'package.json')))) {
 }
 
 const { openDatabase } = await import('../db.mjs')
-const { getBriefing, getOrCreateDefinition } = await import('../briefing/store.mjs')
+const { briefingInFlight, getBriefing, getOrCreateDefinition } = await import('../briefing/store.mjs')
 const { mergeBriefingSubmit } = await import('../briefing/run.mjs')
 const { handleBriefingRoutes } = await import('../routes/briefing.mjs')
 
@@ -49,15 +49,23 @@ function runtime({ onPrompt, cwd } = {}) {
     lanAssist: async () => ({ requests: [] }),
     call: async (endpoint) => {
       if (endpoint === 'session/list') {
-        return { items: [{ sessionId: 'sess-briefing', cwd: sessionCwd, origin: 'user', updatedAt: 2, running: false }] }
+        return {
+          items: [{
+            sessionId: 'sess-briefing',
+            cwd: sessionCwd,
+            origin: 'user',
+            updatedAt: 2,
+            running: false,
+            projections: { values: { agentPreset: 'fde-briefing', cwd: sessionCwd } },
+          }],
+        }
       }
-      if (endpoint === 'session/create') {
-        throw new Error('briefing must not create an fde-briefing session')
-      }
+      if (endpoint === 'session/create') return { sessionId: 'sess-briefing' }
       if (endpoint === 'session/prompt') {
         if (onPrompt) return onPrompt()
         return {}
       }
+      if (endpoint === 'session/cancel') return {}
       return {}
     },
     async *stream() {
@@ -107,7 +115,16 @@ function aiSection(briefing) {
   return (briefing?.sections || []).find((section) => section && section.type === 'ai')
 }
 
-test('a finished turn without fde_briefing_submit closes the run in Chinese', async () => {
+async function waitSettled(db, id, cwd) {
+  for (let i = 0; i < 80; i += 1) {
+    const row = getBriefing(db, id, cwd)
+    if (row && !briefingInFlight(row)) return row
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  return getBriefing(db, id, cwd)
+}
+
+test('a finished turn without fde_briefing_submit nudges once then closes in Chinese', async () => {
   const path = '/tmp/fde-x-briefing-submit-miss.sqlite'
   await rm(path, { force: true })
   const cwd = '/tmp/fde-x-briefing-submit-miss-ws'
@@ -117,23 +134,30 @@ test('a finished turn without fde_briefing_submit closes the run in Chinese', as
   const page = readFileSync(join(repoRoot, 'src/pages/Briefing.tsx'), 'utf8')
   assert.match(page, /\$\{s\.title\}失败/)
 
-  const aiRuntime = runtime({ cwd })
+  let prompts = 0
+  const aiRuntime = runtime({
+    cwd,
+    onPrompt() {
+      prompts += 1
+      return {}
+    },
+  })
   const first = await postRun(db, aiRuntime, cwd)
   assert.equal(first.status, 200, JSON.stringify(first.body))
-  const briefing = first.body.data?.briefing
+  const briefing = await waitSettled(db, first.body.data.briefingId, cwd)
+  assert.equal(prompts, 2)
   const ai = aiSection(briefing)
   assert.equal(ai?.title, 'AI 早报')
   assert.equal(ai?.pendingAgent, false)
   assert.equal(ai?.error, '没有收到早报提交')
   assert.notEqual(briefing.status, 'running')
   assert.match(failureLine(briefing.sections), /AI 早报失败/)
-  const stored = getBriefing(db, first.body.data.briefingId, cwd)
-  assert.notEqual(stored.status, 'running')
-  assert.equal(stored.sections.some((section) => section.pendingAgent), false)
+  assert.equal(briefing.sections.some((section) => section.pendingAgent), false)
 
   const second = await postRun(db, aiRuntime, cwd)
   assert.equal(second.status, 200, JSON.stringify(second.body))
-  assert.notEqual(second.body.data.briefingId, first.body.data.briefingId)
+  const secondRow = await waitSettled(db, second.body.data.briefingId, cwd)
+  assert.notEqual(secondRow.id, first.body.data.briefingId)
   db.close()
 })
 
@@ -152,7 +176,7 @@ test('a rejected briefing prompt is the Chinese section error and does not stay 
   })
   const first = await postRun(db, aiRuntime, cwd)
   assert.equal(first.status, 200, JSON.stringify(first.body))
-  const briefing = first.body.data?.briefing
+  const briefing = await waitSettled(db, first.body.data.briefingId, cwd)
   const ai = aiSection(briefing)
   assert.equal(ai?.error, '会话拒绝了这次 prompt')
   assert.equal(ai?.pendingAgent, false)
@@ -161,7 +185,8 @@ test('a rejected briefing prompt is the Chinese section error and does not stay 
 
   const second = await postRun(db, runtime({ cwd }), cwd)
   assert.equal(second.status, 200, JSON.stringify(second.body))
-  assert.notEqual(second.body.data.briefingId, first.body.data.briefingId)
+  const secondRow = await waitSettled(db, second.body.data.briefingId, cwd)
+  assert.notEqual(secondRow.id, first.body.data.briefingId)
   db.close()
 })
 
@@ -181,7 +206,7 @@ test('an English host error is copied onto the AI section', async () => {
   })
   const first = await postRun(db, aiRuntime, cwd)
   assert.equal(first.status, 200, JSON.stringify(first.body))
-  const briefing = first.body.data?.briefing
+  const briefing = await waitSettled(db, first.body.data.briefingId, cwd)
   const ai = aiSection(briefing)
   assert.equal(ai?.error, hostError)
   assert.equal(ai?.pendingAgent, false)
@@ -190,7 +215,8 @@ test('an English host error is copied onto the AI section', async () => {
 
   const second = await postRun(db, runtime({ cwd }), cwd)
   assert.equal(second.status, 200, JSON.stringify(second.body))
-  assert.notEqual(second.body.data.briefingId, first.body.data.briefingId)
+  const secondRow = await waitSettled(db, second.body.data.briefingId, cwd)
+  assert.notEqual(secondRow.id, first.body.data.briefingId)
   db.close()
 })
 
@@ -215,10 +241,11 @@ test('a submit that lands stays on the section when the turn ends', async () => 
   })
   const first = await postRun(db, aiRuntime, cwd)
   assert.equal(first.status, 200, JSON.stringify(first.body))
-  const ai = aiSection(first.body.data?.briefing)
+  const briefing = await waitSettled(db, first.body.data.briefingId, cwd)
+  const ai = aiSection(briefing)
   assert.equal(ai?.items?.[0]?.text, '今日总览')
   assert.equal(ai?.error, undefined)
   assert.equal(ai?.pendingAgent, false)
-  assert.notEqual(first.body.data?.briefing?.status, 'running')
+  assert.notEqual(briefing.status, 'running')
   db.close()
 })

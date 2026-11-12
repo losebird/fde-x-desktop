@@ -20,10 +20,18 @@ export function listedSessions(listed) {
   return []
 }
 
+function rowAgentPreset(row) {
+  const values = row?.projections?.values
+  if (values && typeof values.agentPreset === 'string') return values.agentPreset
+  if (typeof row?.agentPreset === 'string') return row.agentPreset
+  return ''
+}
+
 export function asPrimarySessionRow(row) {
   if (!row || typeof row !== 'object') return null
   const sessionId = String(row.sessionId || row.id || '')
   if (!sessionId) return null
+  if (rowAgentPreset(row) === 'fde-briefing') return null
   return {
     sessionId,
     cwd: String(row.cwd || row.workspace || ''),

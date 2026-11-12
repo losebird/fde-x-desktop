@@ -36,18 +36,21 @@ test('a second full run joins the in-flight briefing and does not prompt again',
   let prompts = 0
   const aiRuntime = {
     status: () => ({ connected: true }),
+    lanAssist: async () => ({ requests: [] }),
     call: async (endpoint, args) => {
       if (endpoint === 'session/list') {
         return { items: [{ sessionId: 'sess-a', cwd: wsCwd, origin: 'user', updatedAt: 2, running: false }] }
       }
       if (endpoint === 'session/create') {
-        assert.fail('briefing must not create an fde-briefing session')
+        assert.equal(args.request.agentPreset, 'fde-briefing')
+        return { sessionId: 'sess-briefing' }
       }
       if (endpoint === 'session/prompt') {
         prompts += 1
-        assert.equal(args.request.sessionId, 'sess-a')
+        assert.equal(args.request.sessionId, 'sess-briefing')
         return {}
       }
+      if (endpoint === 'session/cancel') return {}
       return {}
     },
     async *stream() {
@@ -61,13 +64,14 @@ test('a second full run joins the in-flight briefing and does not prompt again',
   assert.equal(a.briefingId, b.briefingId)
   assert.equal(Boolean(a.joined) && Boolean(b.joined), false)
   assert.equal(Boolean(a.joined) || Boolean(b.joined), true)
-  assert.equal(prompts, 1)
+  assert.equal(prompts, 2)
   db.close()
 })
 
 function connectedRuntime(hooks = {}) {
   return {
     status: () => ({ connected: true }),
+    lanAssist: async () => ({ requests: [] }),
     call: async (endpoint, args) => {
       if (endpoint === 'session/list') return { items: [] }
       if (endpoint === 'session/create') {
@@ -120,14 +124,19 @@ test('a generate without a live AI session fails closed and the next generate st
   let listed = []
   const aiRuntime = {
     status: () => ({ connected: true }),
+    lanAssist: async () => ({ requests: [] }),
     call: async (endpoint, args) => {
       if (endpoint === 'session/list') return { items: listed }
-      if (endpoint === 'session/create') assert.fail('briefing must not create an fde-briefing session')
+      if (endpoint === 'session/create') {
+        if (!listed.length) return { sessionId: '' }
+        return { sessionId: 'sess-briefing' }
+      }
       if (endpoint === 'session/prompt') {
         prompts += 1
         assert.equal(args.request.sessionId, 'sess-briefing')
         return {}
       }
+      if (endpoint === 'session/cancel') return {}
       return {}
     },
     async *stream() {
@@ -138,12 +147,19 @@ test('a generate without a live AI session fails closed and the next generate st
   const stuckRun = await runBriefing({ db, aiRuntime }, { workspaceCwd: wsCwd, mode: 'full' })
   const stuck = getBriefing(db, stuckRun.briefingId, wsCwd)
   assert.equal(stuck.status, 'partial')
-  assert.equal(stuck.agentError, '当前工作区还没有可用的 AI 会话')
-  listed = [{ sessionId: 'sess-briefing', cwd: wsCwd, origin: 'user', updatedAt: 2, running: false }]
+  assert.equal(stuck.agentError, '早报会话没有建成')
+  listed = [{
+    sessionId: 'sess-briefing',
+    cwd: wsCwd,
+    origin: 'user',
+    updatedAt: 2,
+    running: false,
+    projections: { values: { agentPreset: 'fde-briefing', cwd: wsCwd } },
+  }]
   const next = await runBriefing({ db, aiRuntime }, { workspaceCwd: wsCwd, mode: 'full' })
   assert.notEqual(next.briefingId, stuck.id)
   assert.notEqual(next.joined, true)
-  assert.equal(prompts, 1)
+  assert.equal(prompts, 2)
   db.close()
 })
 
@@ -156,6 +172,7 @@ test('onOpen full skips the canvas-selected session', async () => {
   let prompts = 0
   const aiRuntime = {
     status: () => ({ connected: true }),
+    lanAssist: async () => ({ requests: [] }),
     call: async (endpoint) => {
       if (endpoint === 'session/list') {
         return { items: [{ sessionId: 'sess-canvas', cwd: wsCwd, origin: 'user', updatedAt: 9, running: false }] }
@@ -189,6 +206,11 @@ test('Briefing land uses onOpen=0; openRef increments land', () => {
   const routes = readFileSync(join(repoRoot, 'runtime/routes/briefing.mjs'), 'utf8')
   assert.match(routes, /skipIfCanvas: true/)
   assert.match(routes, /canvasSessionId/)
+  assert.match(routes, /waitForAgent: false/)
+  assert.match(briefing, /loadCurrentWorkspaceCwd\(\)/)
+  assert.equal(briefing.includes('sessionId: target.sessionId'), false)
+  const server = readFileSync(join(repoRoot, 'runtime/server.mjs'), 'utf8')
+  assert.match(server, /agentPreset !== 'fde-briefing'/)
 })
 
 test('MCP sections leave 采集中 as soon as host collect returns, before harvest ends', async () => {
@@ -235,11 +257,18 @@ test('MCP sections leave 采集中 as soon as host collect returns, before harve
     status: () => ({ connected: true, origin: 'http://127.0.0.1:9' }),
     call: async (endpoint) => {
       if (endpoint === 'session/list') {
-        return { items: [{ sessionId: 'sess-flush', cwd, origin: 'user', updatedAt: 2, running: false }] }
+        return {
+          items: [{
+            sessionId: 'sess-flush',
+            cwd,
+            origin: 'user',
+            updatedAt: 2,
+            running: false,
+            projections: { values: { agentPreset: 'fde-briefing', cwd } },
+          }],
+        }
       }
-      if (endpoint === 'session/create') {
-        assert.fail('briefing must not create an fde-briefing session')
-      }
+      if (endpoint === 'session/create') return { sessionId: 'sess-flush' }
       if (endpoint === 'session/prompt') {
         const latest = getLatestBriefing(db, cwd)
         const news = (latest?.sections || []).find((row) => row.id === 'news')
@@ -269,6 +298,92 @@ test('MCP sections leave 采集中 as soon as host collect returns, before harve
     if (previous == null) delete process.env.FDE_DSH_HOME
     else process.env.FDE_DSH_HOME = previous
     db.close()
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('waitForAgent false returns after mcp flush while harvest still runs', async () => {
+  const path = '/tmp/fde-x-briefing-early-return.sqlite'
+  const cwd = '/tmp/fde-x-briefing-early-return-ws'
+  await rm(path, { force: true }).catch(() => undefined)
+  const db = makeDb(path)
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT OR REPLACE INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_early', 't', '', 'active', ?, ?, ?)
+  `).run(JSON.stringify({ cwd }), now, now)
+  getOrCreateDefinition(db, cwd)
+  const sections = defaultSections().map((row) => (
+    row.type === 'ai' ? row : { ...row, enabled: false }
+  ))
+  sections.push({
+    id: 'news',
+    type: 'mcp',
+    title: '行业资讯',
+    enabled: true,
+    render: 'list',
+    params: { server: 'ai-hot', tool: 'mcp__ai-hot__aihot_get_latest', args: { limit: 3 } },
+  })
+  saveDefinition(db, cwd, { sections, schedule: defaultSchedule() })
+  const home = await mkdtemp(join(tmpdir(), 'fde-briefing-early-'))
+  const previous = process.env.FDE_DSH_HOME
+  process.env.FDE_DSH_HOME = home
+  await mkdir(join(home, 'run'), { recursive: true })
+  await writeFile(join(home, 'run', 'bridge.token'), 'bridge-token\n')
+  let releaseFollow
+  const followGate = new Promise((resolve) => { releaseFollow = resolve })
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ ok: true, text: 'early-news' }),
+  })
+  const aiRuntime = {
+    dshHome: home,
+    status: () => ({ connected: true, origin: 'http://127.0.0.1:9' }),
+    lanAssist: async () => ({ requests: [] }),
+    call: async (endpoint) => {
+      if (endpoint === 'session/list') {
+        return {
+          items: [{
+            sessionId: 'sess-early',
+            cwd,
+            origin: 'user',
+            updatedAt: 2,
+            running: false,
+            projections: { values: { agentPreset: 'fde-briefing', cwd } },
+          }],
+        }
+      }
+      if (endpoint === 'session/create') return { sessionId: 'sess-early' }
+      if (endpoint === 'session/prompt') return {}
+      if (endpoint === 'session/cancel') return {}
+      return {}
+    },
+    async *stream(endpoint) {
+      if (endpoint !== 'session/follow') return
+      await followGate
+      yield { type: 'event', event: { type: 'turn/start', data: {} } }
+      yield { type: 'event', event: { type: 'turn/end', data: {} } }
+    },
+  }
+  const started = Date.now()
+  try {
+    const result = await runBriefing({ db, aiRuntime }, { workspaceCwd: cwd, mode: 'full', waitForAgent: false })
+    assert.equal(Date.now() - started < 3000, true)
+    const news = (result.briefing?.sections || []).find((row) => row.id === 'news')
+    const ai = (result.briefing?.sections || []).find((row) => row.type === 'ai')
+    assert.equal(news?.pendingAgent, false)
+    assert.equal(news?.items?.[0]?.text, 'early-news')
+    assert.equal(ai?.pendingAgent, true)
+  } finally {
+    releaseFollow()
+    globalThis.fetch = originalFetch
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    if (previous == null) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = previous
+    db.close()
+    await rm(path, { force: true }).catch(() => undefined)
     await rm(home, { recursive: true, force: true })
   }
 })

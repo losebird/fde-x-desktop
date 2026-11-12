@@ -319,7 +319,9 @@
             config:
               suffix: Your working directory is {{cwd}}.
               prefix: >-
-                You are a coding agent powered by the {{model}} model.
+                You write FDE morning briefings with the {{model}} model.
+                Call fde_briefing_submit with short Chinese bullets. Do not use a shell,
+                files, browser, or other tools. Do not write the digest as assistant text.
 
           - id: agent-instructions
             name: '@deepseek-ai/dsh-agent-instructions'
@@ -337,11 +339,11 @@
           # host-plane too.
           - id: tool-bash
             name: '@deepseek-ai/dsh-tool-bash'
-            disabled: !!js process.platform === 'win32'
+            disabled: true
 
           - id: tool-pwsh
             name: '@deepseek-ai/dsh-tool-pwsh'
-            disabled: !!js process.platform !== 'win32'
+            disabled: true
 
           # ── filesystem ──────────────────────────────────────────────────────────────
 
@@ -349,9 +351,11 @@
           # they need no realm. The `fs` service and its policy stay in the host.
           - id: tool-fs
             name: '@deepseek-ai/dsh-tool-fs'
+            disabled: true
 
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            disabled: true
             config:
               sampleOverCapGlobResults: false
 
@@ -366,6 +370,7 @@
           # chooses is whether its agent can collect and stop background work at all.
           - id: tool-jobs
             name: '@deepseek-ai/dsh-tool-jobs'
+            disabled: true
 
           # ── skills ──────────────────────────────────────────────────────────────────
 
@@ -476,6 +481,7 @@
 
               - id: tool-subagent
                 name: '@deepseek-ai/dsh-tool-subagent'
+                disabled: true
                 config:
                   provider: spawn
                   toolName: subagent
@@ -533,9 +539,11 @@
 
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'
+            disabled: true
 
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
+            disabled: true
             config:
               allowParallelInProgress: true
 
@@ -543,6 +551,7 @@
           # the model-facing tool is per-session.
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
+            disabled: true
             config:
               fetch: true
               searchTimeoutMs: 60000

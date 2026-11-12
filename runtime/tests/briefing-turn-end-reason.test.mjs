@@ -7,6 +7,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { openDatabase } from '../db.mjs'
 import { runBriefing } from '../briefing/run.mjs'
+import { briefingTurnFailure } from '../briefing/tool-official.mjs'
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const migrations = join(repoRoot, 'runtime', 'migrations')
@@ -71,6 +72,24 @@ function aiError(result) {
   const ai = sections.find((section) => section.type === 'ai')
   return ai?.error || ''
 }
+
+test('UNKNOWN turn/end is not a briefing failure', () => {
+  assert.equal(briefingTurnFailure({
+    type: 'turn/end',
+    data: { reason: { kind: 'error', code: 'UNKNOWN' } },
+  }), null)
+})
+
+test('UNKNOWN turn/end does not become the AI digest error', async (t) => {
+  const { db, cwd } = await withWorkspace(t)
+  const result = await runBriefing(
+    { db, aiRuntime: runtime({ kind: 'error', error: { code: 'UNKNOWN', message: 'session persistence missing' } }, cwd) },
+    { workspaceCwd: cwd, mode: 'full' },
+  )
+  const error = aiError(result)
+  assert.notEqual(error, '早报这一轮失败（UNKNOWN）。')
+  assert.equal(error, '没有收到早报提交')
+})
 
 test('a turn that ends without a key names that reason in the briefing block', async (t) => {
   const { db, cwd } = await withWorkspace(t)

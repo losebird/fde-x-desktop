@@ -180,13 +180,15 @@ export default function Briefing() {
   const runFull = () => {
     setRunning(true)
     setAiNote('')
-    void currentAiTarget().then((target) => {
-      if (!target.ok) throw new Error(target.error)
-      return runtimeApi.runBriefing('full', {
-        sessionId: target.sessionId,
-        workspaceCwd: target.cwd,
-        omit: [...ctxOmit],
-      })
+    const workspace = loadCurrentWorkspaceCwd()
+    if (!workspace.ok) {
+      setRunning(false)
+      setAiNote(workspace.error)
+      return
+    }
+    void runtimeApi.runBriefing('full', {
+      workspaceCwd: workspace.cwd,
+      omit: [...ctxOmit],
     }).then((data) => {
       setBriefing(data.briefing)
       refresh(false)
@@ -248,7 +250,7 @@ export default function Briefing() {
             <button
               type="button"
               className="btn-primary"
-              disabled={running}
+              disabled={running || Boolean(aiSection?.pendingAgent)}
               onClick={runFull}
             >
               {running ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
@@ -407,6 +409,9 @@ export default function Briefing() {
               <div className="text-sm leading-6 text-ink">
                 {aiSection?.error && (
                   <p className="text-accent-red mb-2">{aiSection.error}</p>
+                )}
+                {aiSection?.pendingAgent && !aiSection?.error && (
+                  <p className="text-ink-muted mb-2">摘要生成中</p>
                 )}
                 <ul className="divide-y divide-line">
                   {(digestItems(aiSection || { body: briefing?.summary }).length

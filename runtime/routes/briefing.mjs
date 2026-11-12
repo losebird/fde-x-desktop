@@ -225,6 +225,7 @@ export async function handleBriefingRoutes(request, response, url, deps) {
         sessionId: typeof body.sessionId === 'string' ? body.sessionId.trim() : '',
         definitionId: typeof body.definitionId === 'string' ? body.definitionId : undefined,
         omit: omitFromBody(body),
+        waitForAgent: false,
       })
       briefingOk(response, 200, { briefingId: result.briefingId, briefing: result.briefing }, correlationId, cors)
     } catch (error) {

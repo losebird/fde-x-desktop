@@ -7,6 +7,9 @@ import { execFile } from 'node:child_process'
 import { releaseRuntimeRestarter, spawnRuntimeRestarter } from '../scripts/runtime-respawn.mjs'
 import { promisify } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { armLifecycleTraps, lifecycleLog } from './lifecycle-log.mjs'
+
+armLifecycleTraps()
 
 const execFileAsync = promisify(execFile)
 
@@ -77,6 +80,7 @@ import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
 import { handlePlanRequest } from './routes/plan.mjs'
 import { failInterruptedRuns } from './plan/workflow-run.mjs'
 import { tickWorkflowSchedules } from './plan/workflow-schedule.mjs'
+import { tickWorkflowCrons, attachWorkflowEventDispatch } from './plan/workflow-triggers.mjs'
 import { handleCatalogRequest } from './routes/catalog.mjs'
 import { collectBag } from './catalog-collect.mjs'
 import { ensureTypertVerbs } from './catalog-typert.mjs'
@@ -2292,7 +2296,7 @@ const server = createServer(async (request, response) => {
           ...toAiSessionSummary(row),
           ...(archived.has(row.sessionId) ? { archived: true } : {}),
         }))
-        .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId) && !item.archived) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)))
+        .filter((item) => (includeArchived ? item.archived : !archived.has(item.sessionId) && !item.archived) && (includeBlank || !item.blank) && (includeSubagents || !isSubagentSession(item)) && item.agentPreset !== 'fde-briefing')
       sendJson(response, 200, { data: { items }, correlationId: currentCorrelationId })
       return
     }
@@ -4031,9 +4035,14 @@ server.listen(port, host, () => {
   console.log(`FDE_LISTENING ${actualPort}`)
   console.log(`FDE-X runtime listening on ${advertisedOrigin}`)
   console.log(`SQLite authority: ${databasePath}`)
+  attachWorkflowEventDispatch({ db, aiRuntime })
   const workflowScheduleTimer = setInterval(() => {
-    void tickWorkflowSchedules({ db, aiRuntime }, { now: new Date(), bootedAt: workflowScheduleBootedAt }).catch((error) => {
+    const clock = { now: new Date(), bootedAt: workflowScheduleBootedAt }
+    void Promise.resolve(tickWorkflowSchedules({ db, aiRuntime }, clock)).catch((error) => {
       console.error('workflow_schedule_tick_failed', error)
+    })
+    void Promise.resolve(tickWorkflowCrons({ db, aiRuntime }, clock)).catch((error) => {
+      console.error('workflow_cron_tick_failed', error)
     })
   }, 15_000)
   if (typeof workflowScheduleTimer.unref === 'function') workflowScheduleTimer.unref()
@@ -4088,9 +4097,11 @@ server.listen(port, host, () => {
 
 server.on('error', (error) => {
   if (error && error.code === 'EADDRINUSE') {
+    lifecycleLog(`EADDRINUSE ${error}`)
     console.error(`[fde-x] 运行口已被占用，本进程退出以免双 BFF`)
     process.exit(1)
   }
+  lifecycleLog(`server.error ${error && error.stack ? error.stack : error}`)
   console.error(error)
 })
 

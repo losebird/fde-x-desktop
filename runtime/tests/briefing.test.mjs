@@ -194,6 +194,81 @@ test('briefing-submit merge', async () => {
   db.close()
 })
 
+test('a later UNKNOWN turn does not wipe a landed briefing submit', async () => {
+  const migrations = join(repoRoot, 'runtime', 'migrations')
+  const mergeDb = '/tmp/fde-x-briefing-keep-landed.sqlite'
+  await rm(mergeDb, { force: true }).catch(() => undefined)
+  const db = openDatabase(mergeDb, migrations)
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_keep', 'b', '', 'active', '{}', ?, ?)
+  `).run(now, now)
+  db.prepare(`
+    INSERT INTO briefing_definitions
+      (id, workspace_id, name, status, sources_json, sections_json, filters_json, schedule_json, delivery_json, template_json, created_at, updated_at)
+    VALUES ('bdef_keep', 'ws_keep', 'd', 'active', '[]', '[]', '{}', '{}', '{}', '{}', ?, ?)
+  `).run(now, now)
+  db.prepare(`
+    INSERT INTO briefings
+      (id, definition_id, state, content_json, generated_at, created_at, workspace_cwd, agent_request_id)
+      VALUES ('brf_keep', 'bdef_keep', 'generating', ?, ?, ?, ?, ?)
+  `).run(JSON.stringify({
+    status: 'running',
+    sections: [
+      { id: 'ai-digest', type: 'ai', title: 'AI 早报', render: 'digest', items: [], pendingAgent: true },
+    ],
+  }), now, now, wsCwd, 'brq_keep')
+  const result = mergeBriefingSubmit(db, 'brq_keep', [
+    { id: 'ai', type: 'ai', items: [{ text: '已交稿的摘要' }] },
+  ])
+  assert.equal(result.ok, true)
+  const row = db.prepare('SELECT content_json FROM briefings WHERE id = ?').get('brf_keep')
+  const content = JSON.parse(row.content_json)
+  const ai = content.sections.find((section) => section.id === 'ai-digest')
+  assert.equal(ai.items[0].text, '已交稿的摘要')
+  assert.equal(ai.error, undefined)
+  db.close()
+})
+
+test('briefing-submit maps a bare ai block onto ai-digest', async () => {
+  const migrations = join(repoRoot, 'runtime', 'migrations')
+  const mergeDb = '/tmp/fde-x-briefing-merge-ai-id.sqlite'
+  await rm(mergeDb, { force: true }).catch(() => undefined)
+  const db = openDatabase(mergeDb, migrations)
+  const now = new Date().toISOString()
+  db.prepare(`
+    INSERT INTO workspaces (id, name, description, status, metadata_json, created_at, updated_at)
+    VALUES ('ws_b2', 'b', '', 'active', '{}', ?, ?)
+  `).run(now, now)
+  db.prepare(`
+    INSERT INTO briefing_definitions
+      (id, workspace_id, name, status, sources_json, sections_json, filters_json, schedule_json, delivery_json, template_json, created_at, updated_at)
+    VALUES ('bdef_ws_b2', 'ws_b2', 'd', 'active', '[]', '[]', '{}', '{}', '{}', '{}', ?, ?)
+  `).run(now, now)
+  db.prepare(`
+    INSERT INTO briefings
+      (id, definition_id, state, content_json, generated_at, created_at, workspace_cwd, agent_request_id)
+      VALUES ('brf_2', 'bdef_ws_b2', 'generating', ?, ?, ?, ?, ?)
+  `).run(JSON.stringify({
+    status: 'running',
+    sections: [
+      { id: 'ai-digest', type: 'ai', title: 'AI 早报', render: 'digest', items: [], pendingAgent: true },
+    ],
+  }), now, now, wsCwd, 'brq_ai_id')
+  const result = mergeBriefingSubmit(db, 'brq_ai_id', [
+    { id: 'ai', title: '今日早报', render: 'list', items: [{ title: 'GitHub CI 失败' }] },
+  ])
+  assert.equal(result.ok, true)
+  const row = db.prepare('SELECT content_json FROM briefings WHERE id = ?').get('brf_2')
+  const content = JSON.parse(row.content_json)
+  const ai = content.sections.find((s) => s.id === 'ai-digest')
+  assert.equal(ai.items[0].text, 'GitHub CI 失败')
+  assert.equal(ai.error, undefined)
+  assert.equal(ai.pendingAgent, false)
+  db.close()
+})
+
 test('latest path puts onOpen in the query', () => {
   const src = readFileSync(join(repoRoot, 'src/lib/runtime-api.ts'), 'utf8')
   assert.match(src, /params\.set\('onOpen', '1'\)/)

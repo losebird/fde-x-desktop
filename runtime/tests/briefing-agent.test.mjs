@@ -74,6 +74,7 @@ test('runBriefingAgent prompts the pointed session and does not create another',
   assert.equal(prompt.args.request.content[0].type, 'text')
   const text = prompt.args.request.content[0].text
   assert.match(text, /fde_briefing_submit/)
+  assert.match(text, /不要用助手文字写摘要/)
   assert.equal(text.includes('内部源摘要'), false)
   assert.ok(text.length < 800)
   assert.equal(prompt.args.agentId, undefined)

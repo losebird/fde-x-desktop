@@ -147,7 +147,10 @@ export function briefingTurnFailure(event) {
   const reason = data.reason
   if (!isRecord(reason)) return null
   if (typeof reason.kind === 'string' && reason.kind !== 'error') return null
-  return structuredFailure(reason, 0)
+  const failure = structuredFailure(reason, 0)
+  if (!failure) return null
+  if (failure.code === 'UNKNOWN') return null
+  return failure
 }
 
 export function briefingTurnFailureText(failure) {
@@ -180,9 +183,10 @@ function eventRequestId(event) {
   return ''
 }
 
-export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs = 180_000, requestId = '', signal } = {}) {
+export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs = 180_000, requestId = '', signal, onReady } = {}) {
   const byTool = {}
   if (!aiRuntime || typeof aiRuntime.stream !== 'function' || !sessionId) {
+    if (typeof onReady === 'function') onReady()
     return { byTool, ended: false }
   }
   const abort = new AbortController()
@@ -197,6 +201,12 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
   let inTurn = false
   let ended = false
   let turnFailure = null
+  let announced = false
+  const announce = () => {
+    if (announced) return
+    announced = true
+    if (typeof onReady === 'function') onReady()
+  }
   try {
     for await (const frame of aiRuntime.stream('session/follow', {
       request: {
@@ -204,10 +214,10 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
         maxMessages: 80,
       },
     }, abort.signal)) {
+      announce()
       const event = eventFromFollowFrame(frame)
       if (!event || typeof event.type !== 'string') continue
       const rid = eventRequestId(event)
-      if (wanted && rid && rid !== wanted) continue
       if (event.type === 'turn/start') {
         inTurn = true
         names.clear()
@@ -246,6 +256,7 @@ export async function harvestTurnToolResults(aiRuntime, sessionId, { timeoutMs =
     clearTimeout(timer)
     if (signal) signal.removeEventListener('abort', onAbort)
     abort.abort()
+    announce()
   }
   return { byTool, ended, turnFailure }
 }
