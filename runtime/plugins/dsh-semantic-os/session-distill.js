@@ -99,7 +99,10 @@ export function installSessionDistill(ctx, opts = {}) {
     try { await post(session) } catch { seen.delete(id) }
   }
 
-  listen('session/after-prompt', (session) => { void maybe(session) })
+  listen('session/event', (session, event) => {
+    if (!event || event.type !== 'user/message') return
+    void maybe(session)
+  })
   listen('workspace.archiveSession', (first, second) => { void maybe(second || first) })
   return { maybe, seen }
 }

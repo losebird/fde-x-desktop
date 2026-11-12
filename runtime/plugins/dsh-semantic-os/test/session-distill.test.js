@@ -67,8 +67,9 @@ test('installSessionDistill posts once per session', async () => {
   let n = 0
   installSessionDistill(ctx, { post: async () => { n += 1 } })
   const session = sessionOf({ id: 's9', cwd: '/ws', lines: ['一', '二'] })
-  await listeners['session/after-prompt'](session)
-  await listeners['session/after-prompt'](session)
+  const user = { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '二' }] } }
+  await listeners['session/event'](session, user)
+  await listeners['session/event'](session, user)
   await listeners['workspace.archiveSession'](null, session)
   assert.equal(n, 1)
 })
