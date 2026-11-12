@@ -16,6 +16,7 @@ import { registerGate } from './gate.js'
 import { createWriteLog } from './product.js'
 import { createOpeningCache } from './opening-brief.js'
 import { installFirstTurn } from './first-turn.js'
+import { installSessionDistill } from './session-distill.js'
 import { runHostSearch } from './tools.js'
 import { ensureProjectMemorySkill } from './skill-install.js'
 
@@ -198,6 +199,7 @@ export function apply(ctx, config) {
       },
       listTodos: (cwd) => import('./continue-brief.js').then((mod) => mod.fetchOpenTodos(cwd)),
     })
+    installSessionDistill(ctx)
   } catch {
     // First-turn hook must not take down apply().
   }

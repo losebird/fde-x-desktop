@@ -580,6 +580,7 @@ function registerSemanticOsHttpTools(ctx) {
   return import(pathToFileURL(join(root, 'tools.js')).href).then(async (mod) => {
     const { createHttpSidecar } = await import(pathToFileURL(join(root, 'sidecar-client.js')).href)
     const firstTurn = await import(pathToFileURL(join(root, 'first-turn.js')).href)
+    const distill = await import(pathToFileURL(join(root, 'session-distill.js')).href)
     const persist = await import(pathToFileURL(join(root, 'session-ingest.js')).href)
     const port = process.env.FDE_RUNTIME_PORT || '4318'
     const sidecar = createHttpSidecar(`http://127.0.0.1:${port}/semantic-os`)
@@ -610,6 +611,7 @@ function registerSemanticOsHttpTools(ctx) {
       },
       listTodos: (cwd) => firstTurn.fetchOpenTodos(cwd),
     })
+    distill.installSessionDistill(ctx)
     const systemPrompt = ctx.get && ctx.get('systemPrompt')
     if (systemPrompt && typeof systemPrompt.section === 'function') {
       systemPrompt.section({
