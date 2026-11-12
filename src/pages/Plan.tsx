@@ -1,8 +1,9 @@
 // 计划模块:三 Tab 合并 —— 待办 / 日程 / 工作流
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
   Plus, Circle, CheckCircle2, CircleDot, Archive, Search, Filter, X, Trash2, ChevronDown,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
   Clock, MapPin, Calendar as CalIcon, Repeat, Play, Power, Sparkles, MoreHorizontal,
 } from 'lucide-react'
 import { askAiForResult } from '@/lib/ask-ai'
@@ -28,6 +29,15 @@ import { WorkflowToolPicker } from '@/components/plan/WorkflowToolPicker'
 import { runtimeApi } from '@/lib/runtime-api'
 import { isRetiredWorkflowPreset, readStepPreset, readStepTools, workflowToolCopy, workflowToolTier } from '@/lib/workflow-tool-copy'
 import { PLAN_DAY_HOURS, planDayOffsetMinutes, planNowMarker, scheduleInstants } from '../../runtime/plan/plan-day-hours.mjs'
+import {
+  planJumpByView,
+  planMonthGrid,
+  planSameDay,
+  planShiftByView,
+  planStartOfDay,
+  planViewLabel,
+  planWeekDays,
+} from '../../runtime/plan/plan-calendar.mjs'
 import { delayDurationMs } from '../../runtime/plan/delay-ms.mjs'
 import { scheduleTriggerLabel } from '../../runtime/plan/schedule-outcome.mjs'
 import { planTaskMenu } from '../../runtime/plan/task-menu.mjs'
@@ -961,10 +971,10 @@ function localDateValue(date: Date) {
   return `${date.getFullYear()}-${month}-${day}`
 }
 
-function emptyEventDraft() {
+function emptyEventDraft(date = new Date()) {
   return {
     title: '',
-    date: localDateValue(new Date()),
+    date: localDateValue(date),
     start: '14:00',
     end: '14:30',
     kind: 'focus' as ScheduleEvent['kind'],
@@ -1009,52 +1019,39 @@ function ScheduleTab() {
   const addEvent = useApp((s) => s.addEvent)
   const removeEvent = useApp((s) => s.removeEvent)
   const toggleWorkflow = useApp((s) => s.toggleWorkflow)
-  const [view, setView] = useState<'day' | 'week'>('day')
+  const [view, setView] = useState<'day' | 'week' | 'month'>('day')
+  const [cursor, setCursor] = useState(() => planStartOfDay(new Date()))
   const [openNew, setOpenNew] = useState(false)
-  useCreateMouth('event', () => setOpenNew(true))
+  const openNewEvent = useCallback(() => {
+    setDraft(emptyEventDraft(cursor))
+    setOpenNew(true)
+  }, [cursor])
+  useCreateMouth('event', openNewEvent)
   const [saving, setSaving] = useState(false)
   const [clock, setClock] = useState(() => new Date())
-  const [draft, setDraft] = useState(emptyEventDraft)
+  const [draft, setDraft] = useState(() => emptyEventDraft())
   const [editEvent, setEditEvent] = useState<ScheduleEvent | null>(null)
   const [historyEvent, setHistoryEvent] = useState<ScheduleEvent | null>(null)
   const [editEpoch, setEditEpoch] = useState(0)
 
-  const todayKey = (iso: string) => new Date(iso).toDateString() === new Date().toDateString()
-  const todays = useMemo(() => events.filter((e) => todayKey(e.start)), [events])
+  const today = planStartOfDay(clock)
+  const cursorIsToday = planSameDay(cursor, today)
+  const todays = useMemo(() => events.filter((e) => planSameDay(new Date(e.start), cursor)), [events, cursor])
 
-  const weekStart = useMemo(() => {
-    const d = new Date()
-    const weekday = d.getDay()
-    const mondayOffset = weekday === 0 ? -6 : 1 - weekday
-    d.setDate(d.getDate() + mondayOffset)
-    d.setHours(0, 0, 0, 0)
-    return d
-  }, [])
-
-  const weekDays = useMemo(
-    () => Array.from({ length: 7 }, (_, i) => {
-      const day = new Date(weekStart)
-      day.setDate(weekStart.getDate() + i)
-      return day
-    }),
-    [weekStart],
-  )
+  const weekDays = useMemo(() => planWeekDays(cursor), [cursor])
+  const monthCells = useMemo(() => planMonthGrid(cursor), [cursor])
 
   const dayLabel = (d: Date) => new Intl.DateTimeFormat('zh-CN', { month: 'long', day: 'numeric' }).format(d)
+  const dayListTitle = cursorIsToday ? '今日清单' : `${cursor.getMonth() + 1}月${cursor.getDate()}日`
 
-  const eventsOnDay = (d: Date) => events.filter((e) => {
-    const start = new Date(e.start)
-    return start.getFullYear() === d.getFullYear()
-      && start.getMonth() === d.getMonth()
-      && start.getDate() === d.getDate()
-  })
+  const eventsOnDay = (d: Date) => events.filter((e) => planSameDay(new Date(e.start), d))
 
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
 
-  const nowMarker = planNowMarker(clock)
+  const nowMarker = cursorIsToday ? planNowMarker(clock) : null
   const selectedWorkflow = workflows.find((row) => row.id === draft.workflowId)
   const bindPaused = Boolean(draft.workflowId && selectedWorkflow?.status === 'paused')
 
@@ -1073,7 +1070,7 @@ function ScheduleTab() {
         workflowId: draft.workflowId || undefined,
         recurrence: draft.workflowId ? draft.recurrence : undefined,
       })
-      setDraft(emptyEventDraft())
+      setDraft(emptyEventDraft(cursor))
       setOpenNew(false)
     } catch {
       return
@@ -1084,12 +1081,25 @@ function ScheduleTab() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-4">
-        <div className="flex border border-line rounded overflow-hidden">
-          <button className={clsx('px-3 py-1.5 text-sm', view === 'day'  && 'bg-ink text-white')} onClick={() => setView('day')}>日</button>
-          <button className={clsx('px-3 py-1.5 text-sm', view === 'week' && 'bg-ink text-white')} onClick={() => setView('week')}>周</button>
+      <div className="flex justify-between items-center mb-4 gap-3 flex-wrap">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex border border-line rounded overflow-hidden" data-plan-cal-view={view}>
+            <button className={clsx('px-3 py-1.5 text-sm', view === 'day'  && 'bg-ink text-white')} onClick={() => setView('day')}>日</button>
+            <button className={clsx('px-3 py-1.5 text-sm', view === 'week' && 'bg-ink text-white')} onClick={() => setView('week')}>周</button>
+            <button className={clsx('px-3 py-1.5 text-sm', view === 'month' && 'bg-ink text-white')} onClick={() => setView('month')}>月</button>
+          </div>
+          <div className="flex items-center gap-1">
+            <button type="button" className="btn-ghost p-1" title={view === 'day' ? '上一周' : view === 'week' ? '上一月' : '上一年'} data-plan-cal-jump-prev={view} onClick={() => setCursor((value) => planJumpByView(value, view, -1))}><ChevronsLeft size={16} /></button>
+            <button type="button" className="btn-ghost p-1" title={view === 'day' ? '上一天' : view === 'week' ? '上一周' : '上一月'} data-plan-cal-step-prev={view} onClick={() => setCursor((value) => planShiftByView(value, view, -1))}><ChevronLeft size={16} /></button>
+            <div className="px-1.5 text-sm font-medium min-w-[7.5rem] text-center" data-plan-cal-label>{planViewLabel(cursor, view)}</div>
+            <button type="button" className="btn-ghost p-1" title={view === 'day' ? '下一天' : view === 'week' ? '下一周' : '下一月'} data-plan-cal-step-next={view} onClick={() => setCursor((value) => planShiftByView(value, view, 1))}><ChevronRight size={16} /></button>
+            <button type="button" className="btn-ghost p-1" title={view === 'day' ? '下一周' : view === 'week' ? '下一月' : '下一年'} data-plan-cal-jump-next={view} onClick={() => setCursor((value) => planJumpByView(value, view, 1))}><ChevronsRight size={16} /></button>
+            {!cursorIsToday && (
+              <button type="button" className="btn h-8 ml-1" data-plan-cal-today onClick={() => setCursor(planStartOfDay(new Date()))}>今天</button>
+            )}
+          </div>
         </div>
-        <button className="btn-primary" title="新事件" onClick={() => setOpenNew(true)}><Plus size={14} /> 新事件</button>
+        <button className="btn-primary" title="新事件" onClick={openNewEvent}><Plus size={14} /> 新事件</button>
       </div>
 
       {view === 'day' && (
@@ -1141,7 +1151,7 @@ function ScheduleTab() {
           </Card>
           <div className="space-y-3">
             <Card>
-              <div className="text-sm font-medium mb-3">今日清单</div>
+              <div className="text-sm font-medium mb-3">{dayListTitle}</div>
               <ul className="space-y-2">
                 {todays.map((e) => (
                   <li key={e.id} className="flex items-start gap-2 text-sm group">
@@ -1206,6 +1216,100 @@ function ScheduleTab() {
             })}
           </div>
         </Card>
+      )}
+
+      {view === 'month' && (
+        <div className="grid grid-cols-1 @3xl:grid-cols-3 gap-6">
+          <div className="card @3xl:col-span-2 overflow-hidden" data-plan-cal-grid>
+            <div className="grid grid-cols-7 border-b border-line">
+              {['周一', '周二', '周三', '周四', '周五', '周六', '周日'].map((label, index) => (
+                <div
+                  key={label}
+                  className={clsx('px-2 py-2 text-xs text-ink-muted', index < 6 && 'border-r border-line')}
+                >
+                  {label}
+                </div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7">
+              {monthCells.map((cell, index) => {
+                const dayEvents = eventsOnDay(cell.date)
+                const selected = planSameDay(cell.date, cursor)
+                const isToday = planSameDay(cell.date, today)
+                const endOfRow = (index + 1) % 7 === 0
+                const lastRow = index >= 35
+                return (
+                  <button
+                    type="button"
+                    key={cell.key}
+                    data-plan-cal-day={cell.key}
+                    title={cell.key}
+                    className={clsx(
+                      'min-h-[92px] min-w-0 p-1.5 text-left',
+                      !endOfRow && 'border-r border-line',
+                      !lastRow && 'border-b border-line',
+                      !cell.inMonth && 'bg-surface-2/40 text-ink-subtle',
+                      selected && 'bg-brand-soft/40',
+                    )}
+                    onClick={() => setCursor(planStartOfDay(cell.date))}
+                    onDoubleClick={() => {
+                      setCursor(planStartOfDay(cell.date))
+                      setView('day')
+                    }}
+                  >
+                    <div className={clsx(
+                      'text-xs w-6 h-6 flex items-center justify-center rounded-full',
+                      isToday && 'bg-ink text-white',
+                    )}>
+                      {cell.date.getDate()}
+                    </div>
+                    <div className="mt-1 space-y-0.5">
+                      {dayEvents.slice(0, 2).map((event) => (
+                        <div key={event.id} className={clsx('text-[10px] truncate rounded px-1 py-px border', KIND_TONE[event.kind].bg)}>{event.title}</div>
+                      ))}
+                      {dayEvents.length > 2 && (
+                        <div className="text-[10px] text-ink-subtle">+{dayEvents.length - 2}</div>
+                      )}
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="space-y-3">
+            <Card>
+              <div className="text-sm font-medium mb-3">{dayListTitle}</div>
+              <ul className="space-y-2">
+                {todays.length === 0 ? (
+                  <li className="text-[11px] text-ink-subtle py-2">暂无日程</li>
+                ) : todays.map((e) => (
+                  <li key={e.id} className="flex items-start gap-2 text-sm group">
+                    <Clock size={14} className="text-ink-muted mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{e.title}</div>
+                      <div className="text-xs text-ink-muted mt-0.5 flex items-center gap-1.5">
+                        <Tag kind={KIND_TONE[e.kind].tag}>{e.kind}</Tag>
+                        {e.location && <><MapPin size={10} /> {e.location}</>}
+                      </div>
+                      <TriggerStatus event={e} workflows={workflows} />
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-edit="event" data-plan-edit-id={e.id} onClick={() => setEditEvent(e)}>编辑</button>
+                      <button type="button" className="btn-ghost h-7 px-2 text-[11px]" data-plan-history="event" data-plan-history-id={e.id} onClick={() => setHistoryEvent(e)}>历史记录</button>
+                    </div>
+                    <button
+                      className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
+                      onClick={() => void removeEvent(e.id)}
+                      title={isHostScheduleId(e.id) ? '清除 Host 日程' : '删除'}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          </div>
+        </div>
       )}
 
       <RightDrawer open={openNew} onClose={() => setOpenNew(false)} title="新建事件">
@@ -1290,7 +1394,7 @@ function ScheduleTab() {
 // =======================================================
 const WORKFLOW_EMOJIS = ['🤖', '⚡', '🔁', '📬', '📝', '🗃️', '📊', '🔔']
 
-const SAVED_ONLY = '本版仅保存，不自动执行'
+
 
 function emptyWorkflowDraft(): {
   name: string
@@ -1616,9 +1720,7 @@ function WorkflowTab() {
                     {w.trigger.kind === 'event' && <>⚡ on {w.trigger.on}</>}
                     {w.trigger.kind === 'manual' && <>👆 手动触发</>}
                   </div>
-                  {(w.trigger.kind === 'keyword' || w.trigger.kind === 'event') && (
-                    <div className="mt-2 text-xs text-ink-muted">{SAVED_ONLY}</div>
-                  )}
+
                   {/* 步骤时间线 */}
                   <div className="mt-3 flex items-center gap-1 flex-wrap">
                     {w.steps.map((s, i) => (
@@ -1821,7 +1923,7 @@ function WorkflowTab() {
             </div>
           </div>
           <div className="text-xs text-ink-muted p-3 rounded bg-surface-2 border border-line">
-            新建后默认 paused，可到列表点击「启用」或「运行」。关键字和事件触发只保存。{SAVED_ONLY}
+            新建后默认暂停。启用后，定时到点、关键字命中、任务完成、文件保存、新订单、收到 IM 会自动跑。日程绑定仍走到点 tick。
           </div>
           {showNew && planServiceError && (
             <div className="text-xs text-accent-red">{planServiceError}</div>

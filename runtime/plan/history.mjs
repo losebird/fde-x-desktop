@@ -192,7 +192,7 @@ function stepFailureMessage(db, runId) {
 function runEntry(db, row) {
   const trigger = jsonOf(row.trigger_json, {})
   const output = jsonOf(row.output_json, {})
-  const kind = trigger.kind === 'schedule' ? 'schedule' : 'manual'
+  const kind = typeof trigger.kind === 'string' && trigger.kind ? trigger.kind : 'manual'
   const fromOutput = typeof output.message === 'string' ? output.message.trim() : ''
   const message = fromOutput || (row.state === 'failed' ? stepFailureMessage(db, row.id) : '')
   const run = {

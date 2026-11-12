@@ -33,7 +33,7 @@ const TOOL_RISK = {
   send_message: 'danger',
   web_fetch: 'danger',
   web_search: 'danger',
-  fde_briefing_submit: 'danger',
+  fde_briefing_submit: 'propose',
   fde_memory_draft: 'danger',
   fde_submit_result: 'danger',
   create_goal: 'danger',

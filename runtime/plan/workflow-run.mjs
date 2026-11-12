@@ -794,15 +794,47 @@ function unconfirmedScheduleDanger(definitionJson) {
 
 function acceptedTrigger(command) {
   const trigger = command?.trigger
+  const workflowId = typeof command?.workflowId === 'string' ? command.workflowId : ''
   if (trigger?.kind === 'manual') return { json: MANUAL_TRIGGER_JSON, scheduleKey: null }
-  if (trigger?.kind !== 'schedule') throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
-  const eventId = typeof trigger.eventId === 'string' ? trigger.eventId : ''
-  const occurrence = typeof trigger.occurrence === 'string' ? trigger.occurrence : ''
-  if (!eventId || !occurrence) throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
-  return {
-    json: JSON.stringify({ kind: 'schedule', eventId, occurrence }),
-    scheduleKey: `${eventId}@${occurrence}`,
+  if (trigger?.kind === 'schedule') {
+    const eventId = typeof trigger.eventId === 'string' ? trigger.eventId : ''
+    const occurrence = typeof trigger.occurrence === 'string' ? trigger.occurrence : ''
+    if (!eventId || !occurrence) throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
+    return {
+      json: JSON.stringify({ kind: 'schedule', eventId, occurrence }),
+      scheduleKey: `${eventId}@${occurrence}`,
+    }
   }
+  if (trigger?.kind === 'cron') {
+    const occurrence = typeof trigger.occurrence === 'string' ? trigger.occurrence : ''
+    if (!occurrence || !workflowId) throw rejectRun(422, 'validation_error', '定时触发缺少发生时间')
+    return {
+      json: JSON.stringify({ kind: 'cron', occurrence, expr: typeof trigger.expr === 'string' ? trigger.expr : '' }),
+      scheduleKey: `cron:${workflowId}@${occurrence}`,
+    }
+  }
+  if (trigger?.kind === 'keyword') {
+    const sourceId = typeof trigger.sourceId === 'string' ? trigger.sourceId : ''
+    if (!sourceId || !workflowId) throw rejectRun(422, 'validation_error', '关键字触发缺少来源')
+    return {
+      json: JSON.stringify({
+        kind: 'keyword',
+        sourceId,
+        pattern: typeof trigger.pattern === 'string' ? trigger.pattern : '',
+      }),
+      scheduleKey: `keyword:${workflowId}@${sourceId}`,
+    }
+  }
+  if (trigger?.kind === 'event') {
+    const on = typeof trigger.on === 'string' ? trigger.on : ''
+    const sourceId = typeof trigger.sourceId === 'string' ? trigger.sourceId : ''
+    if (!on || !sourceId || !workflowId) throw rejectRun(422, 'validation_error', '事件触发缺少来源')
+    return {
+      json: JSON.stringify({ kind: 'event', on, sourceId }),
+      scheduleKey: `event:${on}:${workflowId}@${sourceId}`,
+    }
+  }
+  throw rejectRun(422, 'validation_error', '这个运行只接受手动触发')
 }
 
 export function startWorkflowRun(deps, command) {
