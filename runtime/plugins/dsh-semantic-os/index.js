@@ -192,6 +192,10 @@ export function apply(ctx, config) {
         writes,
         corpus,
       ),
+      listSessions: async (cwd) => {
+        const listed = persistence && typeof persistence.list === 'function' ? await persistence.list() : []
+        return (Array.isArray(listed) ? listed : []).filter((row) => !cwd || !row.cwd || row.cwd === cwd)
+      },
     })
   } catch {
     // First-turn hook must not take down apply().

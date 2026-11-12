@@ -6,6 +6,7 @@
 
 import { loadSpokenSeed, speechHasConnectorLookup, speechHasSpokenRole } from '../dsh-lan-assist/live-write-intent.mjs'
 import { speechHoldsWorkstationWrite } from '../dsh-lan-assist/slots.js'
+import { formatCoreBrief, isContinueQuery, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
 
 const SEARCH_INTENTS = new Set(['查询', '出处', '催待办'])
 const CARD_CAP = 1600
@@ -98,6 +99,21 @@ export function sessionIdFromSession(session) {
   return String(session.id || session.sessionId || header.id || header.sessionId || '').trim()
 }
 
+async function resolveBrief(opts, context, sessionId) {
+  const session = (context && context.agent && context.agent.session) || (context && context.session) || null
+  const cwd = String((session && session.header && session.header.cwd) || (opts && opts.cwd) || '').trim()
+  let rows = []
+  if (opts && typeof opts.listSessions === 'function') {
+    try { rows = await opts.listSessions(cwd, context) } catch { rows = [] }
+  }
+  const lastSession = pickLastSession(rows, { cwd, currentId: sessionId })
+  let todos = []
+  if (opts && typeof opts.listTodos === 'function') {
+    try { todos = await opts.listTodos(cwd, context) } catch { todos = [] }
+  }
+  return { cwd, lastSession, todos }
+}
+
 export function installFirstTurn(ctx, opts) {
   const cache = createFirstTurnCache()
   const search = opts && typeof opts.search === 'function' ? opts.search : null
@@ -116,16 +132,25 @@ export function installFirstTurn(ctx, opts) {
     const sessionId = sessionIdFromAssembleContext(context) || sessionIdFromSession(context && context.agent && context.agent.session)
     const events = eventsFromAssembleContext(context)
     const speech = resolveFirstTurnSpeech({ events, remembered: cache.speechOf(sessionId) })
-    if (!sessionId || !speech) return pack
-    const card = await cache.ensure(sessionId, speech, (text, routed) => search(text, routed, context))
-    if (!card) return pack
+    const brief = await resolveBrief(opts, context, sessionId)
     const sections = Array.isArray(pack.sections) ? pack.sections.slice() : []
-    if (!sections.some((row) => row && row.name === 'tool:dsh-semantic-os-first-turn')) {
+    const core = formatCoreBrief(brief)
+    if (core && !sections.some((row) => row && row.name === 'tool:dsh-semantic-os-continue')) {
       sections.push({
-        name: 'tool:dsh-semantic-os-first-turn',
-        order: 120,
-        text: card,
+        name: 'tool:dsh-semantic-os-continue',
+        order: 118,
+        text: core,
       })
+    }
+    if (sessionId && speech) {
+      const card = await cache.ensure(sessionId, speech, (text, routed) => search(text, routed, context), brief)
+      if (card && !sections.some((row) => row && row.name === 'tool:dsh-semantic-os-first-turn')) {
+        sections.push({
+          name: 'tool:dsh-semantic-os-first-turn',
+          order: 120,
+          text: card,
+        })
+      }
     }
     return { ...pack, sections }
   })
@@ -202,17 +227,23 @@ export function sessionIdFromAssembleContext(context) {
   return sessionIdFromSession(session) || String((context && context.sessionId) || '').trim()
 }
 
-export async function flipFirstTurn({ text, search }) {
-  const routed = routeIntent(text)
+export async function flipFirstTurn({ text, search, brief }) {
+  const spoken = String(text || '').trim()
+  const query = rewriteContinueQuery(spoken, brief)
+  const routed = routeIntent(isContinueQuery(spoken) ? query : spoken)
+  if (isContinueQuery(spoken)) {
+    routed.intent = '查询'
+    routed.tool = 'search_text'
+  }
   let hits = []
   if (needsSearch(routed.intent) && typeof search === 'function') {
     try {
-      hits = parseSearchHits(await search(String(text || '').trim(), routed))
+      hits = parseSearchHits(await search(query, routed))
     } catch {
       hits = []
     }
   }
-  return { ...routed, hits }
+  return { ...routed, hits, query }
 }
 
 export function createFirstTurnCache() {
@@ -238,7 +269,7 @@ export function createFirstTurnCache() {
     map.set(id, { speech: line, card: (hit && hit.card) || '', wait: (hit && hit.wait) || null })
   }
 
-  async function ensure(sessionId, speech, search) {
+  async function ensure(sessionId, speech, search, brief) {
     const id = String(sessionId || '').trim()
     const line = String(speech || '').trim()
     if (!id || !line) return ''
@@ -249,7 +280,7 @@ export function createFirstTurnCache() {
     const wait = new Promise((resolve) => { settle = resolve })
     map.set(id, { speech: line, card: '', wait })
     try {
-      const flipped = await flipFirstTurn({ text: line, search })
+      const flipped = await flipFirstTurn({ text: line, search, brief })
       const card = formatHandoff({ ...flipped, sessionId: id })
       map.set(id, { speech: line, card, wait: null })
       settle(card)

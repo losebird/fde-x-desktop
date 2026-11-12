@@ -125,7 +125,7 @@ _FILLER_MARK = re.compile(r"[吗呢啊呀？?\s的都点了]")
 _PREFIX_MARK = re.compile(r"^(还记得|记得)?(我们)?")
 
 
-_CONTINUE_MARK = re.compile(r"接着干|接着处理|还没做完|未完成|上次没做完|上次还没做完")
+_CONTINUE_MARK = re.compile(r"接着干|接着处理|继续处理|还没做完|未完成|上次没做完|上次还没做完")
 
 
 def is_continue_query(text: Any) -> bool:

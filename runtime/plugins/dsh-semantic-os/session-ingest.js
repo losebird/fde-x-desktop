@@ -183,10 +183,16 @@ export function adaptSessionPersistence(raw) {
       const rows = await list(...args)
       return (Array.isArray(rows) ? rows : []).map((row) => {
         const header = headerOf(row) || {}
+        const meta = header.meta && typeof header.meta === 'object' ? header.meta : {}
         const out = {
           id: String(header.id || ''),
-          cwd: String(header.cwd || (header.meta && header.meta.cwd) || ''),
+          cwd: String(header.cwd || meta.cwd || ''),
         }
+        const title = String(header.title || meta.title || '').trim()
+        if (title) out.title = title
+        const preset = String(header.agentPreset || meta.agentPreset || '').trim()
+        if (preset) out.agentPreset = preset
+        if (header.lastPromptAt != null) out.lastPromptAt = header.lastPromptAt
         if (header.createdAt != null) out.createdAt = header.createdAt
         if (header.updatedAt != null) out.updatedAt = header.updatedAt
         else if (header.createdAt != null) out.updatedAt = header.createdAt

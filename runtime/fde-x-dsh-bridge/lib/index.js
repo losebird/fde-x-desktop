@@ -604,6 +604,10 @@ function registerSemanticOsHttpTools(ctx) {
         writes,
         corpus,
       ),
+      listSessions: async (cwd) => {
+        const listed = persistence && typeof persistence.list === 'function' ? await persistence.list() : []
+        return (Array.isArray(listed) ? listed : []).filter((row) => !cwd || !row.cwd || row.cwd === cwd)
+      },
     })
     const systemPrompt = ctx.get && ctx.get('systemPrompt')
     if (systemPrompt && typeof systemPrompt.section === 'function') {

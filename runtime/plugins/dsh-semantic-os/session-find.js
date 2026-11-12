@@ -31,7 +31,7 @@ const TALK_MARK = /(都)?(聊了|说了|谈了|沟通了|讨论过|说过)(些|�
 const WHAT_MARK = /什么|啥|哪些事情|哪些事儿|哪些事|哪些/g
 const FILLER_MARK = /[吗呢啊呀？?\s的都点了]/g
 
-const CONTINUE_MARK = /接着干|接着处理|还没做完|未完成|上次没做完|上次还没做完/
+const CONTINUE_MARK = /接着干|接着处理|继续处理|还没做完|未完成|上次没做完|上次还没做完/
 
 export function isContinueQuery(query) {
   return CONTINUE_MARK.test(String(query || '').trim())

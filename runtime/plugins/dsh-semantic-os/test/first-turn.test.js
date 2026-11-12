@@ -93,7 +93,8 @@ test('assemble reads Host session.eventAt instead of a missing events array', as
     async () => ({ sections: [] }),
   )
   assert.equal(searched, 1)
-  assert.match(assembled.sections[0].text, /上午那句/)
+  const card = assembled.sections.find((row) => row.name === 'tool:dsh-semantic-os-first-turn')
+  assert.match(card.text, /上午那句/)
 })
 
 test('installFirstTurn injects a Host search receipt on assemble', async () => {
