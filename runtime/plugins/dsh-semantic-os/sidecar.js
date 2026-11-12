@@ -14,6 +14,12 @@ import { ensureDeps, probeDeps } from './ensure-deps.js'
 import { createInstaller } from './installer.js'
 import { homedir } from 'node:os'
 import { mkdirSync } from 'node:fs'
+import {
+  armParentDeathReaper,
+  killProcessGroup,
+  stopParentDeathReaper,
+  waitPidExit,
+} from '../../process-group.mjs'
 
 const BOOTSTRAP = join(dirname(fileURLToPath(import.meta.url)), 'python', 'bootstrap.py')
 const READY_PREFIX = 'DSH_SEMANTIC_OS '
@@ -38,6 +44,9 @@ const EXPECTED_VERSION = '0.7.0'
 export function createSidecar(getConfig) {
   /** @type {import('node:child_process').ChildProcess | null} */
   let child = null
+  /** @type {import('node:child_process').ChildProcess | null} */
+  let reaper = null
+  let groupPid = null
   /** @type {SidecarState} */
   let state = blankState()
   /** @type {string} */
@@ -46,6 +55,17 @@ export function createSidecar(getConfig) {
   const installer = createInstaller({ probe: probeDeps, install: ensureDeps, getConfig })
   /** @type {Array<(snap: SidecarState) => void>} */
   const readyHooks = []
+
+  function dropChild() {
+    const pid = Number(child?.pid || groupPid || 0)
+    child = null
+    groupPid = null
+    const held = reaper
+    reaper = null
+    if (pid > 1) killProcessGroup(pid, 'SIGKILL')
+    stopParentDeathReaper(held)
+    return pid
+  }
 
   function snapshot() {
     return { ...state, hasKey: Boolean(apiKey), install: installer.snapshot() }
@@ -84,30 +104,16 @@ export function createSidecar(getConfig) {
   }
 
   async function retryReady() {
+    if (state.reason && state.reason !== 'exited' && state.reason !== 'start_timeout' && state.reason !== 'start_failed' && !state.ready && child) {
+      return snapshot()
+    }
     await dispose()
     return start()
   }
 
   async function dispose() {
-    const current = child
-    child = null
-    if (!current || current.killed) {
-      state = { ...state, ready: false, port: null, pid: null }
-      return
-    }
-    await new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        try { current.kill('SIGKILL') } catch { /* ignore */ }
-      }, 3000)
-      current.once('exit', () => {
-        clearTimeout(timer)
-        resolve(undefined)
-      })
-      try { current.kill('SIGTERM') } catch {
-        clearTimeout(timer)
-        resolve(undefined)
-      }
-    })
+    const pid = dropChild()
+    if (pid > 1) await waitPidExit(pid, 2000)
     state = { ...state, ready: false, port: null, pid: null }
   }
 
@@ -173,8 +179,8 @@ export function createSidecar(getConfig) {
     const result = await launch(resolved.argv, env, timeoutMs, resolved.command, cacheRoot)
     state = { ...result, llmProvider: llm.dshProvider, llmModel: llm.model, llmReady: llm.configured }
     if (!result.ready) {
-      await killQuiet(child)
-      child = null
+      const pid = dropChild()
+      if (pid > 1) await waitPidExit(pid, 2000)
     }
   }
 
@@ -190,13 +196,17 @@ export function createSidecar(getConfig) {
       let settled = false
       let stdout = ''
       let stderr = ''
+      const unix = process.platform !== 'win32'
       const proc = spawn(argv[0], argv.slice(1), {
         env,
         cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         windowsHide: true,
+        detached: unix,
       })
       child = proc
+      groupPid = proc.pid ?? null
+      reaper = armParentDeathReaper(groupPid)
 
       const timer = setTimeout(() => {
         finish({
@@ -209,7 +219,7 @@ export function createSidecar(getConfig) {
           doctor: trimLog(stdout, stderr),
           pid: proc.pid ?? null,
         })
-        try { proc.kill('SIGTERM') } catch { /* ignore */ }
+        if (proc.pid) killProcessGroup(proc.pid, 'SIGKILL')
       }, timeoutMs)
 
       const finish = (next) => {
@@ -248,7 +258,13 @@ export function createSidecar(getConfig) {
         })
       })
       proc.on('exit', (code, signal) => {
-        if (child === proc) child = null
+        if (child === proc) {
+          child = null
+          groupPid = null
+          const held = reaper
+          reaper = null
+          stopParentDeathReaper(held)
+        }
         if (settled && state.ready && state.pid === proc.pid) {
           state = { ...state, ready: false, port: null, reason: 'exited', detail: `exit ${code ?? signal}` }
           return
@@ -267,7 +283,18 @@ export function createSidecar(getConfig) {
     })
   }
 
-  return { start, retryReady, dispose, snapshot, getApiKey, onReady, retryInstall: () => installer.ensure(true) }
+  const onParentExit = () => {
+    dropChild()
+  }
+  process.once('exit', onParentExit)
+
+  const originalDispose = dispose
+  async function disposeAndUnhook() {
+    process.removeListener('exit', onParentExit)
+    await originalDispose()
+  }
+
+  return { start, retryReady, dispose: disposeAndUnhook, snapshot, getApiKey, onReady, retryInstall: () => installer.ensure(true) }
 }
 
 function blankState() {
@@ -438,22 +465,4 @@ function findReadyLine(buffer) {
 
 function trimLog(stdout, stderr) {
   return [stdout, stderr].filter(Boolean).join('\n').slice(-8000)
-}
-
-async function killQuiet(proc) {
-  if (!proc || proc.killed) return
-  await new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      try { proc.kill('SIGKILL') } catch { /* ignore */ }
-      resolve(undefined)
-    }, 2000)
-    proc.once('exit', () => {
-      clearTimeout(timer)
-      resolve(undefined)
-    })
-    try { proc.kill('SIGTERM') } catch {
-      clearTimeout(timer)
-      resolve(undefined)
-    }
-  })
 }

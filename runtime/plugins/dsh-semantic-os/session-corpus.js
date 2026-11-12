@@ -4,7 +4,7 @@
  */
 
 import { adaptSessionPersistence, eventText, eventTime, headerCwd, headerId } from './session-ingest.js'
-import { clipSnippet, hitCoversQuery, isTimeRecallQuery, parseSessionNodeId, queryTokens, rankHit, sortHits, topicQuery } from './session-find.js'
+import { clipSnippet, hitCoversQuery, isTimeRecallQuery, parseSessionNodeId, queryTokens, rankHit, sortHits, speechClockWindow, topicQuery } from './session-find.js'
 import { listBridgePeers } from './bridge.js'
 
 const SEARCH_LIMIT = 12
@@ -46,10 +46,13 @@ export function coversQueryWindow(iso, args = {}) {
   const date = String(args.date || args.at || args.when || '').trim()
   const from = String(args.date_from || args.from || '').trim()
   const to = String(args.date_to || args.to || '').trim()
-  if (!date && !from && !to) return true
+  const query = String(args.query || args.q || '').trim()
+  const spoken = speechClockWindow(date) || speechClockWindow(query)
+  if (!date && !from && !to && !spoken) return true
   if (!iso) return false
   const instant = new Date(iso)
   if (Number.isNaN(instant.getTime())) return false
+  if (spoken) return instant >= spoken.start && instant <= spoken.end
   const stamp = localStamp(instant)
   const day = localDay(instant)
   const wanted = parseClock(date)
@@ -150,8 +153,8 @@ async function searchOneCwd(persistence, cwd, query, args, via) {
       const text = eventText(event).trim()
       if (!text) continue
       const iso = eventTime(event)
-      if (!coversQueryWindow(iso, args)) continue
-      const dated = Boolean(String(args.date || args.at || args.date_from || args.from || '').trim())
+      if (!coversQueryWindow(iso, { ...args, query: q })) continue
+      const dated = Boolean(String(args.date || args.at || args.date_from || args.from || '').trim()) || isTimeRecallQuery(q)
       if (!(isTimeRecallQuery(q) && dated) && !text.includes(q) && !`session:${id}:${seq}`.includes(q)) continue
       hits.push(packHit(`session:${id}:${seq}`, text, iso, q, cwd, via))
       if (hits.length >= want) return hits

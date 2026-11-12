@@ -475,33 +475,43 @@ export function runHostSearch(sidecar, args, exec, writes, corpus) {
 }
 
 export function registerTools(ctx, { defineTool }, sidecar, writes, extractQueue, corpus) {
-  for (const spec of TOOLS) {
-    if (CANVAS_TOOL_NAMES.has(spec.name)) continue
-    ctx.tools.register(defineTool({
-      name: spec.name,
-      description: spec.description,
-      parameters: spec.parameters,
-      output: {
-        schema: { type: 'string' },
-        render: (_args, value) => [{ type: 'text', text: String(value) }],
-      },
-      isConcurrencySafe: () => READ_TOOLS.has(spec.name),
-      async execute(args, exec) {
-        if (extractQueue && typeof extractQueue.markBusy === 'function') extractQueue.markBusy()
-        try {
-          const packed = await callTool(sidecar, spec.name, args, exec, writes, corpus)
-          offerHits(extractQueue, spec.name, args, exec, packed)
-          return packed
-        } finally {
-          setTimeout(() => {
-            if (extractQueue && typeof extractQueue.markIdle === 'function') extractQueue.markIdle()
-          }, 8000)
-        }
-      },
-      presentCall() {
-        return { card: 'generic', title: spec.name, kind: 'read' }
-      },
-    }))
+  const specs = TOOLS.filter((spec) => !CANVAS_TOOL_NAMES.has(spec.name))
+  specs.sort((left, right) => {
+    if (left.name === 'search_text') return -1
+    if (right.name === 'search_text') return 1
+    return 0
+  })
+  for (const spec of specs) {
+    try {
+      ctx.tools.register(defineTool({
+        name: spec.name,
+        description: spec.description,
+        parameters: spec.parameters,
+        output: {
+          schema: { type: 'string' },
+          render: (_args, value) => [{ type: 'text', text: String(value) }],
+        },
+        isConcurrencySafe: () => READ_TOOLS.has(spec.name),
+        async execute(args, exec) {
+          if (extractQueue && typeof extractQueue.markBusy === 'function') extractQueue.markBusy()
+          try {
+            const packed = await callTool(sidecar, spec.name, args, exec, writes, corpus)
+            offerHits(extractQueue, spec.name, args, exec, packed)
+            return packed
+          } finally {
+            setTimeout(() => {
+              if (extractQueue && typeof extractQueue.markIdle === 'function') extractQueue.markIdle()
+            }, 8000)
+          }
+        },
+        presentCall() {
+          return { card: 'generic', title: spec.name, kind: 'read' }
+        },
+      }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      console.warn(`[dsh-semantic-os] register ${spec.name}: ${message}`)
+    }
   }
 }
 

@@ -26,7 +26,7 @@ export function isSessionTailQuery(query) {
   return /^[0-9a-f]{6,12}$/i.test(String(query || '').trim())
 }
 
-const TIME_MARK = /昨天|今天|前天|今早|今晚|上午|下午|晚上|凌晨|傍晚|那会儿|当时/g
+const TIME_MARK = /昨天|今天|前天|今早|今晚|上午|中午|下午|晚上|凌晨|傍晚|那会儿|当时/g
 const TALK_MARK = /(都)?(聊了|说了|谈了|沟通了|讨论过|说过)(些|点)?/g
 const WHAT_MARK = /什么|啥|哪些事情|哪些事儿|哪些事|哪些/g
 const FILLER_MARK = /[吗呢啊呀？?\s的都点了]/g
@@ -35,6 +35,47 @@ const CONTINUE_MARK = /接着干|接着处理|还没做完|未完成|上次没�
 
 export function isContinueQuery(query) {
   return CONTINUE_MARK.test(String(query || '').trim())
+}
+
+export function speechClockWindow(text, now = new Date()) {
+  const raw = String(text || '')
+  if (!raw) return null
+  let shift = null
+  if (raw.includes('前天')) shift = -2
+  else if (raw.includes('昨天')) shift = -1
+  else if (raw.includes('今天')) shift = 0
+  let hours = null
+  const spans = [
+    ['凌晨', 0, 5],
+    ['今早', 5, 12],
+    ['中午', 11, 13],
+    ['上午', 5, 12],
+    ['傍晚', 17, 19],
+    ['今晚', 18, 24],
+    ['晚上', 18, 24],
+    ['下午', 12, 18],
+  ]
+  for (const [token, from, to] of spans) {
+    if (!raw.includes(token)) continue
+    hours = [from, to]
+    if ((token === '今早' || token === '今晚') && shift == null) shift = 0
+    break
+  }
+  if (shift == null && hours == null) return null
+  if (shift == null) shift = 0
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() + shift)
+  const startHour = hours ? hours[0] : 0
+  const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), startHour, 0, 0, 0)
+  let end
+  if (!hours) {
+    end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1, 0, 0, 0, 0)
+  } else if (hours[1] >= 24) {
+    end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1, 0, 0, 0, 0)
+  } else {
+    end = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours[1], 0, 0, 0)
+  }
+  end = new Date(end.getTime() - 1)
+  return { start, end }
 }
 
 export function isTimeRecallQuery(query) {

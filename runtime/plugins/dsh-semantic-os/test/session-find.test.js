@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { composeFindResults, excerptsFromFind, groupOfficialSearch, groupSemanticHits, isTimeRecallQuery, parseSessionNodeId } from '../session-find.js'
+import { composeFindResults, excerptsFromFind, groupOfficialSearch, groupSemanticHits, isTimeRecallQuery, parseSessionNodeId, speechClockWindow } from '../session-find.js'
 
 const list = {
   current: 'sess-a',
@@ -107,7 +107,18 @@ test('time-recall with a date keeps that day\'s session even when the body is �
   assert.equal(isTimeRecallQuery('昨天聊了什么'), true)
   assert.equal(isTimeRecallQuery('昨天聊了哪些事情?'), true)
   assert.equal(isTimeRecallQuery('今天上午聊了啥'), true)
+  assert.equal(isTimeRecallQuery('今天中午聊了哪些事情'), true)
   assert.equal(isTimeRecallQuery('工单昨天'), false)
+  const now = new Date(2026, 10, 12, 18, 6, 0)
+  const noon = speechClockWindow('今天中午聊了哪些事情', now)
+  assert.equal(noon.start.getHours(), 11)
+  assert.equal(noon.start.getMinutes(), 0)
+  assert.equal(noon.end.getHours(), 12)
+  assert.equal(noon.end.getMinutes(), 59)
+  const inside = new Date(2026, 10, 12, 11, 42, 0)
+  const evening = new Date(2026, 10, 12, 18, 6, 0)
+  assert.equal(inside >= noon.start && inside <= noon.end, true)
+  assert.equal(evening >= noon.start && evening <= noon.end, false)
   const packed = {
     query: '昨天聊了什么',
     results: [

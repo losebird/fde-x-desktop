@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   createFirstTurnCache,
   firstHumanSpeech,
   flipFirstTurn,
   formatHandoff,
+  installFirstTurn,
+  isInjectedUserSpeech,
   needsSearch,
+  normalizeFirstTurnSpeech,
   parseSearchHits,
   resolveFirstTurnSpeech,
   routeIntent,
@@ -45,6 +51,82 @@ test('firstHumanSpeech only when exactly one human line', () => {
   assert.equal(firstHumanSpeech([user('接着上次')]), '接着上次')
   assert.equal(firstHumanSpeech([user('一'), user('二')]), '')
   assert.equal(firstHumanSpeech([{ type: 'user/message', data: { source: { plugin: 'x' }, content: [{ type: 'text', text: '要不要' }] } }]), '')
+})
+
+test('firstHumanSpeech ignores Host runtime injects and strips /iui', () => {
+  const user = (text) => ({ type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text }] } })
+  assert.equal(isInjectedUserSpeech('Current runtime context. This snapshot supersedes'), true)
+  assert.equal(isInjectedUserSpeech('<system-reminder> A skill is'), true)
+  assert.equal(normalizeFirstTurnSpeech('/iui 昨天下午聊了啥'), '昨天下午聊了啥')
+  assert.equal(firstHumanSpeech([
+    user('/iui 昨天下午聊了啥'),
+    user('Current runtime context. This snapshot supersedes earlier runtime-context snapshots.'),
+    user('<system-reminder> A skill is a reusable set of task-specific instructions.'),
+  ]), '昨天下午聊了啥')
+  assert.deepEqual(routeIntent('昨天下午聊了啥'), { intent: '查询', tool: 'search_text' })
+})
+
+test('assemble reads Host session.eventAt instead of a missing events array', async () => {
+  const listeners = {}
+  const ctx = { on(name, fn) { listeners[name] = fn } }
+  let searched = 0
+  installFirstTurn(ctx, {
+    search: async (text) => {
+      searched += 1
+      assert.equal(text, '昨天上午我们聊了哪些事情？')
+      return { results: [{ node: { id: 'session:old:4', content: '上午那句' } }] }
+    },
+  })
+  const events = [
+    { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '昨天上午我们聊了哪些事情？' }] } },
+    { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'Current runtime context. This snapshot supersedes earlier runtime-context snapshots.' }] } },
+  ]
+  const session = {
+    id: 'sess-host',
+    header: { id: 'sess-host', cwd: '/ws' },
+    seq: events.length,
+    eventAt(index) { return events[index] },
+  }
+  const assembled = await listeners['system-prompt/assemble'](
+    { sections: [] },
+    { agent: { session } },
+    async () => ({ sections: [] }),
+  )
+  assert.equal(searched, 1)
+  assert.match(assembled.sections[0].text, /上午那句/)
+})
+
+test('installFirstTurn injects a Host search receipt on assemble', async () => {
+  const listeners = {}
+  const ctx = {
+    on(name, fn) {
+      listeners[name] = fn
+    },
+  }
+  let searched = 0
+  installFirstTurn(ctx, {
+    search: async (text) => {
+      searched += 1
+      assert.equal(text, '昨天下午聊了啥')
+      return { results: [{ node: { id: 'session:old:3', content: '采购订单核验' } }] }
+    },
+  })
+  const session = { id: 'sess-new', header: { cwd: '/ws' } }
+  listeners['session/event'](session, {
+    type: 'user/message',
+    data: { source: { kind: 'user' }, content: [{ type: 'text', text: '昨天下午聊了啥' }] },
+  })
+  const assembled = await listeners['system-prompt/assemble'](
+    { sections: [] },
+    { agent: { session }, session },
+    async () => ({ sections: [{ name: 'base', text: 'x' }] }),
+  )
+  assert.equal(searched, 1)
+  const card = assembled.sections.find((row) => row.name === 'tool:dsh-semantic-os-first-turn')
+  assert.ok(card)
+  assert.match(card.text, /Host 已代调/)
+  assert.match(card.text, /search_text/)
+  assert.match(card.text, /采购订单核验/)
 })
 
 test('formatHandoff stays a small tool receipt', () => {
@@ -96,6 +178,16 @@ test('ensure waits for in-flight search instead of returning empty', async () =>
   assert.match(a, /Host 已代调/)
   assert.match(b, /Host 已代调/)
   assert.match(b, /session:x:1/)
+})
+
+test('BFF Host path installs first-turn and keeps session persistence for search', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const bridge = readFileSync(join(here, '../../../fde-x-dsh-bridge/lib/index.js'), 'utf8')
+  assert.match(bridge, /installFirstTurn/)
+  assert.match(bridge, /runHostSearch/)
+  assert.match(bridge, /adaptSessionPersistence/)
+  const index = readFileSync(join(here, '../index.js'), 'utf8')
+  assert.match(index, /installFirstTurn/)
 })
 
 test('inbox UserMessage speech is used when session log is still empty', async () => {

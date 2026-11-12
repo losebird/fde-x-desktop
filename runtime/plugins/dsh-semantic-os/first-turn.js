@@ -50,8 +50,23 @@ export function speechFromUserMessage(message) {
   return textFromContent(message.content)
 }
 
+export function isInjectedUserSpeech(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return true
+  if (/^Current (runtime context|DSH file policy)/.test(raw)) return true
+  if (/^<system-reminder>/.test(raw)) return true
+  if (/^Time sampled while preparing/.test(raw)) return true
+  if (/^\[iui-pattern\]/.test(raw)) return true
+  if (/^<skill_content\b/.test(raw)) return true
+  return false
+}
+
+export function normalizeFirstTurnSpeech(text) {
+  return String(text || '').replace(/^\s*\/iui\b/i, '').trim()
+}
+
 export function resolveFirstTurnSpeech({ events, remembered } = {}) {
-  return firstHumanSpeech(events) || String(remembered || '').trim()
+  return firstHumanSpeech(events) || normalizeFirstTurnSpeech(remembered)
 }
 
 function textFromContent(content) {
@@ -70,10 +85,52 @@ export function firstHumanSpeech(events) {
   const lines = []
   for (const event of list) {
     const text = userSpeechFromEvent(event)
-    if (text) lines.push(text)
+    if (!text || isInjectedUserSpeech(text)) continue
+    lines.push(normalizeFirstTurnSpeech(text))
   }
   if (lines.length !== 1) return ''
   return lines[0]
+}
+
+export function sessionIdFromSession(session) {
+  if (!session || typeof session !== 'object') return ''
+  const header = session.header || {}
+  return String(session.id || session.sessionId || header.id || header.sessionId || '').trim()
+}
+
+export function installFirstTurn(ctx, opts) {
+  const cache = createFirstTurnCache()
+  const search = opts && typeof opts.search === 'function' ? opts.search : null
+  if (!ctx || typeof ctx.on !== 'function' || !search) return cache
+
+  ctx.on('session/event', (session, event) => {
+    const id = sessionIdFromSession(session)
+    const text = normalizeFirstTurnSpeech(userSpeechFromEvent(event))
+    if (!id || !text || isInjectedUserSpeech(text)) return
+    cache.noteSpeech(id, text)
+  })
+
+  ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    const assembled = typeof next === 'function' ? await next() : _assembly
+    const pack = assembled && typeof assembled === 'object' ? assembled : { sections: [] }
+    const sessionId = sessionIdFromAssembleContext(context) || sessionIdFromSession(context && context.agent && context.agent.session)
+    const events = eventsFromAssembleContext(context)
+    const speech = resolveFirstTurnSpeech({ events, remembered: cache.speechOf(sessionId) })
+    if (!sessionId || !speech) return pack
+    const card = await cache.ensure(sessionId, speech, (text, routed) => search(text, routed, context))
+    if (!card) return pack
+    const sections = Array.isArray(pack.sections) ? pack.sections.slice() : []
+    if (!sections.some((row) => row && row.name === 'tool:dsh-semantic-os-first-turn')) {
+      sections.push({
+        name: 'tool:dsh-semantic-os-first-turn',
+        order: 120,
+        text: card,
+      })
+    }
+    return { ...pack, sections }
+  })
+
+  return cache
 }
 
 export function clipHit(row) {
@@ -102,6 +159,9 @@ export function formatHandoff({ intent, tool, hits, sessionId }) {
   } else if (needsSearch(intent)) {
     lines.push('hits: （这一拍没有摘录）')
   }
+  if (tool === 'search_text') {
+    lines.push('用这些摘录回答。不要 find_precedents。不要解压 session zstd。')
+  }
   const text = lines.join('\n').trim()
   return text.length <= CARD_CAP ? text : `${text.slice(0, CARD_CAP - 1)}…`
 }
@@ -120,6 +180,18 @@ export function eventsFromAssembleContext(context) {
     || (context && context.session)
     || null
   if (session && Array.isArray(session.events)) return session.events
+  if (session && typeof session.eventAt === 'function') {
+    const seq = Number(session.seq)
+    const out = []
+    const cap = Number.isSafeInteger(seq) && seq > 0 ? Math.min(seq, 64) : 0
+    for (let index = 0; index < cap; index += 1) {
+      try {
+        const event = session.eventAt(index)
+        if (event) out.push(event)
+      } catch { /* skip */ }
+    }
+    if (out.length) return out
+  }
   if (context && Array.isArray(context.events)) return context.events
   if (context && Array.isArray(context.messages)) return context.messages
   return []
@@ -127,7 +199,7 @@ export function eventsFromAssembleContext(context) {
 
 export function sessionIdFromAssembleContext(context) {
   const session = (context && context.agent && context.agent.session) || (context && context.session) || null
-  return String((session && (session.id || session.sessionId)) || (context && context.sessionId) || '').trim()
+  return sessionIdFromSession(session) || String((context && context.sessionId) || '').trim()
 }
 
 export async function flipFirstTurn({ text, search }) {

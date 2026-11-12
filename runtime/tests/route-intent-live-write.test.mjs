@@ -134,6 +134,7 @@ test('prompt and tool schema tell the model to follow biz_preview', () => {
   assert.doesNotMatch(index, /call route_intent first/)
   assert.match(tools, /现况 → biz_preview/)
   assert.match(tools, /name: 'route_intent'/)
+  assert.match(index, /installFirstTurn/)
 })
 
 test('python write says come from spoken.json, not a local list', () => {

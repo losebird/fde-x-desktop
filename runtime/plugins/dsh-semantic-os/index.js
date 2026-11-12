@@ -15,6 +15,8 @@ import { createIngest, postPython } from './ingest.js'
 import { registerGate } from './gate.js'
 import { createWriteLog } from './product.js'
 import { createOpeningCache } from './opening-brief.js'
+import { installFirstTurn } from './first-turn.js'
+import { runHostSearch } from './tools.js'
 import { ensureProjectMemorySkill } from './skill-install.js'
 
 import { createSessionIngest, DEFAULT_SESSION_INGEST_INTERVAL_MIN, eventText, headerCwd, headerId } from './session-ingest.js'
@@ -172,13 +174,27 @@ export function apply(ctx, config) {
     }
   })
 
+  const corpus = {
+    getPersistence: () => persistence,
+    getExtract: () => extract,
+  }
   try {
-    registerTools(ctx, { defineTool }, sidecar, writes, extractQueue, {
-      getPersistence: () => persistence,
-      getExtract: () => extract,
-    })
+    registerTools(ctx, { defineTool }, sidecar, writes, extractQueue, corpus)
   } catch {
     // A bad tool schema must not take down apply() / the web shell.
+  }
+  try {
+    installFirstTurn(ctx, {
+      search: (text, _routed, context) => runHostSearch(
+        sidecar,
+        { query: text, q: text },
+        { agent: context && context.agent },
+        writes,
+        corpus,
+      ),
+    })
+  } catch {
+    // First-turn hook must not take down apply().
   }
   registerGate(ctx, {
     sidecar,
@@ -352,6 +368,7 @@ export function apply(ctx, config) {
         'This cwd has a local knowledge graph of prior chats, files, and recorded decisions. Hits are 当时, never live ERP.',
         'route_intent names which graph tool fits an utterance; it does not search. Follow its tool field when you call it. 现况 → biz_preview (live connector). 拍板 → find_precedents before brief_for_decision. query_decisions lists recorded boards; get_causal_chain walks a board; analyze_decision_impact lists boards it CAUSED. check_decision_rules only blocks record_decision. lineage/export_graph on a board id export W3C PROV-O (依据+因果). Empty graph returns []. Do not search_text when the tool is biz_preview.',
         'Graph ops without a session cwd return NO_CWD. If the engine is not ready they return NOT_READY.',
+        'Time-recall (昨天/今天/上午/中午/下午聊了啥) has a Host first-turn search_text receipt named tool:dsh-semantic-os-first-turn. Use those hits. Do not decompress session zstd logs. Do not call find_precedents unless the user is 拍板.',
       ].join(' '),
     })
   }

@@ -34,3 +34,11 @@ test('Host plugin no longer hardcodes Vite origin on turn-end', () => {
   assert.match(src, /Origin: bffPageOrigin\(\)/)
   assert.doesNotMatch(src, /Origin: 'http:\/\/127\.0\.0\.1:5174'/)
 })
+
+test('semantic-os tools finish registering before the first prompt assembles', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../fde-x-dsh-bridge/lib/index.js'), 'utf8')
+  assert.match(src, /httpToolsReady/)
+  assert.match(src, /await httpToolsReady/)
+  assert.match(src, /registerSemanticOsHttpTools/)
+  assert.match(src, /installFirstTurn/)
+})

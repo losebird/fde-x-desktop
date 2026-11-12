@@ -9,6 +9,7 @@ Use this skill before recording a board, writing a 记忆卡片, or upserting vo
 
 ## Retrieval
 
+- Time-recall (昨天/今天/上午/中午/下午聊了啥) uses `search_text`. Do not load search-digest or search-query. Do not substitute `list_memory_cards`. If `search_text` is missing from this turn's tools, say the graph tools have not mounted; do not decompress session zstd.
 - `search_text` hits are 摘录 (`id` + `then` + nearby text). `total` is the full hit count; a page is not 图里没有.
 - After a 摘录, open the diary with `open_node(id)`. `truncated` means the archive is longer.
 - `lineage` answers 出自. For a recorded board it also walks 依据 and 因果. `format=turtle` (or `export_graph` with that id) is the W3C PROV-O audit. `query_graph` walks edges.

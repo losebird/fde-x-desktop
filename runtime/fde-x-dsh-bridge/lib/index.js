@@ -579,13 +579,43 @@ function registerSemanticOsHttpTools(ctx) {
   const { defineTool } = loadDshTools()
   return import(pathToFileURL(join(root, 'tools.js')).href).then(async (mod) => {
     const { createHttpSidecar } = await import(pathToFileURL(join(root, 'sidecar-client.js')).href)
+    const firstTurn = await import(pathToFileURL(join(root, 'first-turn.js')).href)
+    const persist = await import(pathToFileURL(join(root, 'session-ingest.js')).href)
     const port = process.env.FDE_RUNTIME_PORT || '4318'
     const sidecar = createHttpSidecar(`http://127.0.0.1:${port}/semantic-os`)
     const writes = { mark() {} }
-    mod.registerTools(ctx, { defineTool }, sidecar, writes, null, {
-      getPersistence: () => null,
+    let persistence = null
+    if (ctx && typeof ctx.inject === 'function') {
+      ctx.inject(['sessionPersistence'], (pctx) => {
+        persistence = persist.adaptSessionPersistence(pctx.sessionPersistence)
+        pctx.effect(() => () => { persistence = null })
+      })
+    }
+    const corpus = {
+      getPersistence: () => persistence,
       getExtract: () => null,
+    }
+    mod.registerTools(ctx, { defineTool }, sidecar, writes, null, corpus)
+    firstTurn.installFirstTurn(ctx, {
+      search: (text, _routed, context) => mod.runHostSearch(
+        sidecar,
+        { query: text, q: text },
+        { agent: context && context.agent },
+        writes,
+        corpus,
+      ),
     })
+    const systemPrompt = ctx.get && ctx.get('systemPrompt')
+    if (systemPrompt && typeof systemPrompt.section === 'function') {
+      systemPrompt.section({
+        name: 'tool:dsh-semantic-os',
+        order: 119,
+        text: () => [
+          'search_text is a Host chat tool in this session. Time-recall (昨天/今天/上午/中午/下午聊了啥) uses it.',
+          'Do not grep the workspace to check if search_text exists. Do not decompress session zstd. Do not load search-digest.',
+        ].join(' '),
+      })
+    }
   })
 }
 
@@ -631,16 +661,24 @@ function apply(ctx, config) {
     registerTools(ctx, { defineTool, config })
     installWorkflowToolLimit(ctx)
     writeBridgeToolsStatus({ ok: true, tools: FDE_TOOL_NAMES, workflowLimit: true })
-    void registerLanAssistHttpTools(ctx).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
-      else console.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
-    })
-    void registerSemanticOsHttpTools(ctx).catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] semantic-os tools: ${message}`)
-      else console.warn(`[fde-x-dsh-bridge] semantic-os tools: ${message}`)
-    })
+    const httpToolsReady = Promise.all([
+      registerLanAssistHttpTools(ctx).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
+        else console.warn(`[fde-x-dsh-bridge] lan-assist tools: ${message}`)
+      }),
+      registerSemanticOsHttpTools(ctx).catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        if (ctx.logger && typeof ctx.logger.warn === 'function') ctx.logger.warn(`[fde-x-dsh-bridge] semantic-os tools: ${message}`)
+        else console.warn(`[fde-x-dsh-bridge] semantic-os tools: ${message}`)
+      }),
+    ])
+    if (typeof ctx.on === 'function') {
+      ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+        await httpToolsReady
+        return next()
+      }, true)
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     writeBridgeToolsStatus({ ok: false, error: message })
