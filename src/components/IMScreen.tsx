@@ -90,7 +90,7 @@ export function IMScreen() {
   }, [mailbox.revision, mailbox.sheet, imVisible, activeWorkspaceId, muteBlocksIm, imMuted])
 
   useEvents(['biz.sheet.pending'], onBizSheetPending)
-  useEvents(['task.changed', 'task.done', 'ai.result.ready', 'task.due.soon', 'mcp.health.changed'], applyTaskNotice)
+  useEvents(['task.changed', 'task.done', 'ai.result.ready', 'task.due.soon', 'mcp.health.changed', 'im.message.received'], applyTaskNotice)
   const [taskToast, setTaskToast] = useState('')
   useEffect(() => {
     let timer = 0

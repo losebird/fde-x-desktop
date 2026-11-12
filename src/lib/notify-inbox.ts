@@ -13,10 +13,17 @@ export type InboxRow = {
   land: OpenRefHref
 }
 
-export function landNoticeHref(href?: string, sessionId?: string, cwd?: string): OpenRefHref {
+export function landNoticeHref(
+  href?: string,
+  sessionId?: string,
+  cwd?: string,
+  extra?: { peerId?: string; groupId?: string },
+): OpenRefHref {
   const key = String(href || '').trim()
   const sid = String(sessionId || '').trim()
   const workspaceCwd = String(cwd || '').trim()
+  const peerId = String(extra?.peerId || '').trim()
+  const groupId = String(extra?.groupId || '').trim()
   const aiLand = (): OpenRefHref => ({
     panel: 'ai',
     ...(sid ? { sessionId: sid } : {}),
@@ -25,7 +32,13 @@ export function landNoticeHref(href?: string, sessionId?: string, cwd?: string):
   if (key === 'plan' || key === '/tasks' || key === 'todo') return { panel: 'plan' }
   if (key === 'ai' || key === '/ai') return aiLand()
   if (key === 'briefing' || key === '/briefing') return { panel: 'briefing' }
-  if (key === 'im' || key === '/im') return { panel: 'im' }
+  if (key === 'im' || key === '/im') {
+    return {
+      panel: 'im',
+      ...(groupId ? { groupId } : {}),
+      ...(peerId ? { peerId } : {}),
+    }
+  }
   if (key === 'memory' || key === '/memory') return { panel: 'memory' }
   if (key === 'settings' || key === '/settings') return { panel: 'settings' }
   if (key === 'files' || key === '/files') return { panel: 'files' }
@@ -33,11 +46,18 @@ export function landNoticeHref(href?: string, sessionId?: string, cwd?: string):
   return aiLand()
 }
 
-export function activateOsNotice(payload: { id?: string; href?: string; sessionId?: string; cwd?: string } | null | undefined) {
+export function activateOsNotice(payload: {
+  id?: string
+  href?: string
+  sessionId?: string
+  cwd?: string
+  peerId?: string
+  groupId?: string
+} | null | undefined) {
   const row = payload && typeof payload === 'object' ? payload : {}
   const id = String(row.id || '').trim()
   if (id) useApp.getState().markNotifRead(id)
-  openRef(landNoticeHref(row.href, row.sessionId, row.cwd))
+  openRef(landNoticeHref(row.href, row.sessionId, row.cwd, { peerId: row.peerId, groupId: row.groupId }))
 }
 
 export function inboxFromNotifications(rows: NoticeRow[]): InboxRow[] {
@@ -49,7 +69,7 @@ export function inboxFromNotifications(rows: NoticeRow[]): InboxRow[] {
       title: row.title,
       body: row.body,
       ts: row.ts,
-      land: landNoticeHref(row.href, row.sessionId, row.cwd),
+      land: landNoticeHref(row.href, row.sessionId, row.cwd, { peerId: row.peerId, groupId: row.groupId }),
     }))
 }
 

@@ -98,9 +98,12 @@ function newIncomingMessages(state, knownIds) {
     if (!requestId || knownIds.has(requestId)) continue
     messages.push({
       peerId: String(row.from || ''),
+      fromName: String(row.fromName || row.groupName || row.title || ''),
       groupId: String(row.groupId || ''),
       requestId,
       hasHandoff: hasHandoff(row),
+      text: String(row.excerpt || row.body || row.text || row.last || ''),
+      workspace: String(row.workspace || ''),
     })
   }
   return messages

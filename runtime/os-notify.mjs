@@ -180,20 +180,13 @@ export function deliverOsNotify({ title, body } = {}, io = {}) {
   const exists = io.exists || existsSync
   const paths = io.paths || notifyHelperPaths(io.dshHome)
   const helperBin = io.helperBin || paths.bin
-  if (helperBin && exists(helperBin) && paths.appDir) {
-    if (helperBlocked(paths, io.readFile || readFileSync)) {
-      run('osascript', osascriptNotifyArgs(heading, text), io)
-      if (exists(GLASS)) run('afplay', [GLASS], { ...io, timeout: 8000 })
-      return { used: 'osascript' }
-    }
+  if (helperBin && exists(helperBin) && paths.appDir && !helperBlocked(paths, io.readFile || readFileSync)) {
     try { writeFileSync(paths.log, '') } catch { /* last.log is diagnostic only */ }
     run('open', ['-n', '-g', '-a', paths.appDir, '--args', heading, text, paths.log], { ...io, timeout: 8000 })
-    run('afplay', [GLASS], { ...io, timeout: 8000 })
+    if (exists(GLASS)) run('afplay', [GLASS], { ...io, timeout: 8000 })
     return { used: 'helper' }
   }
-  run('osascript', osascriptNotifyArgs(heading, text), io)
-  if (exists(GLASS)) run('afplay', [GLASS], { ...io, timeout: 8000 })
-  return { used: 'osascript' }
+  return { used: 'none' }
 }
 
 export function osNotify({ title, body } = {}, io = {}) {
@@ -233,7 +226,7 @@ export function osNotifyFromEnvelope(type, payload, io = {}) {
   }
 }
 
-if (!process.env.NODE_TEST_CONTEXT && process.platform === 'darwin' && process.env.FDE_OS_NOTIFY !== '0') {
+if (!process.env.NODE_TEST_CONTEXT && process.platform === 'darwin' && process.env.FDE_OS_NOTIFY !== '0' && !process.env.FDE_STATIC_DIR) {
   helperBuild = buildNotifyHelper().catch((error) => {
     console.warn('os_notify_helper_build_failed', error)
     return null

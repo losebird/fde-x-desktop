@@ -320,6 +320,8 @@ export interface Notification {
   href?: string
   sessionId?: string
   cwd?: string
+  peerId?: string
+  groupId?: string
 }
 
 export interface NewsItem {

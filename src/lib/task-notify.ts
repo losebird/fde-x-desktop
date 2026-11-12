@@ -3,7 +3,16 @@ import { activateOsNotice } from '@/lib/notify-inbox'
 import type { Notification as NoticeRow } from '@/lib/types'
 import { useApp } from '@/store/app'
 
-type Notice = { title: string; body?: string; href?: 'plan' | 'ai' | 'mcp'; sessionId?: string; cwd?: string; gate: 'done' | 'due' | 'mcp' }
+type Notice = {
+  title: string
+  body?: string
+  href?: 'plan' | 'ai' | 'mcp' | 'im'
+  sessionId?: string
+  cwd?: string
+  peerId?: string
+  groupId?: string
+  gate: 'done' | 'due' | 'mcp' | 'im'
+}
 
 function displayTitle(raw: unknown) {
   return String(raw || '').replace(/<\|[^|]*\|>/g, '').replace(/\s+/g, ' ').trim()
@@ -37,6 +46,20 @@ export function noticeFromEvent(event: FdeEvent): Notice | null {
   if (event.type === 'mcp.health.changed' && payload.ok === false) {
     const name = String(payload.serverName || '').trim()
     return { title: name ? `连接器异常：${name}` : '连接器异常', href: 'mcp', gate: 'mcp' }
+  }
+  if (event.type === 'im.message.received') {
+    const peer = String(payload.fromName || payload.peerName || payload.groupName || payload.peerId || '').trim()
+    const groupId = String(payload.groupId || '').trim()
+    const peerId = String(payload.peerId || '').trim()
+    const body = displayTitle(payload.text || payload.excerpt || payload.body)
+    return {
+      title: peer ? `新消息 · ${peer}` : 'FDE-X 新消息',
+      body,
+      href: 'im',
+      ...(groupId ? { groupId } : {}),
+      ...(peerId ? { peerId } : {}),
+      gate: 'im',
+    }
   }
   return null
 }
@@ -76,6 +99,8 @@ function showOsNotice(notice: Notice, id: string) {
     href: notice.href,
     sessionId: notice.sessionId,
     cwd: notice.cwd,
+    peerId: notice.peerId,
+    groupId: notice.groupId,
   }
   const desktop = typeof window !== 'undefined' ? window.fdeDesktop : undefined
   if (desktop?.notify) {
@@ -97,6 +122,7 @@ export function applyTaskNotice(event: FdeEvent) {
   if (notice.gate === 'done' && !state.taskDoneNotify) return
   if (notice.gate === 'due' && !state.taskDueSoonNotify) return
   if (notice.gate === 'mcp' && !state.mcpDownNotify) return
+  if (notice.gate === 'im' && state.muteBlocksIm && state.imMuted) return
   const rowId = event.id ? `n_${event.id}` : ''
   if (rowId && state.notifications.some((row) => row.id === rowId)) return
   const row: NoticeRow = {
@@ -109,6 +135,8 @@ export function applyTaskNotice(event: FdeEvent) {
     href: notice.href,
     ...(notice.sessionId ? { sessionId: notice.sessionId } : {}),
     ...(notice.cwd ? { cwd: notice.cwd } : {}),
+    ...(notice.peerId ? { peerId: notice.peerId } : {}),
+    ...(notice.groupId ? { groupId: notice.groupId } : {}),
   }
   state.addNotification(row)
   showOsNotice(notice, row.id)

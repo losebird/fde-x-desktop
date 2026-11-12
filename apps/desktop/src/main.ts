@@ -18,6 +18,11 @@ import {
 
 const MAX_BFF_EXITS = 3
 
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  app.quit()
+}
+
 let mainWindow: BrowserWindow | null = null
 let bffChild: ChildProcess | null = null
 let bffPort = 0
@@ -67,6 +72,8 @@ type OsNoticePayload = {
   href?: string
   sessionId?: string
   cwd?: string
+  peerId?: string
+  groupId?: string
 }
 
 function focusMainWindow() {
@@ -98,6 +105,8 @@ function showDesktopNotice(payload: OsNoticePayload) {
       href: payload.href || '',
       sessionId: payload.sessionId || '',
       cwd: payload.cwd || '',
+      peerId: payload.peerId || '',
+      groupId: payload.groupId || '',
     })
   })
   notice.on('failed', (_event, error) => {
@@ -167,9 +176,12 @@ async function startBff() {
   bffChild = spawned.child
   bffPort = spawned.port
   uiToken = spawned.uiToken
-  exitStreak = 0
   await writeLastBffPort(pack.roots.base, spawned.port)
-  spawned.child.once('exit', onBffExit)
+  const spawnedAt = Date.now()
+  spawned.child.once('exit', () => {
+    if (Date.now() - spawnedAt > 60_000) exitStreak = 0
+    onBffExit()
+  })
 }
 
 function onBffExit() {
@@ -342,12 +354,17 @@ async function gracefulShutdown() {
   } catch {
     // BFF 可能已退出
   }
-  if (bffChild && !bffChild.killed) {
-    bffChild.kill('SIGTERM')
+  if (bffChild?.pid) {
+    try { bffChild.kill('SIGTERM') } catch { /* already gone */ }
+    const pid = bffChild.pid
+    setTimeout(() => {
+      try { process.kill(pid, 'SIGKILL') } catch { /* gone */ }
+    }, 1500)
   }
 }
 
 app.whenReady().then(() => {
+  if (!gotSingleInstanceLock) return
   if (Notification.isSupported()) Notification.removeAll()
   ipcMain.handle('fde:pick-directory', async () => {
     const result = mainWindow
@@ -391,4 +408,8 @@ app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     void createWindow()
   }
+})
+
+app.on('second-instance', () => {
+  focusMainWindow()
 })

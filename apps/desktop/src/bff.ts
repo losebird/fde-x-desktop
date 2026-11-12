@@ -64,6 +64,8 @@ export async function spawnBff(
         settled = true
         clearTimeout(timeout)
         rl.close()
+        child.stdout?.resume()
+        child.stdout?.on('data', () => {})
         resolve({ port: Number(match[1]), uiToken })
       }
     })

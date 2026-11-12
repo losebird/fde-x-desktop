@@ -35,6 +35,20 @@ function noticeFromEvent(event) {
     const name = String(payload.serverName || '').trim()
     return { title: name ? `连接器异常：${name}` : '连接器异常', href: 'mcp', gate: 'mcp' }
   }
+  if (event.type === 'im.message.received') {
+    const peer = String(payload.fromName || payload.peerName || payload.groupName || payload.peerId || '').trim()
+    const groupId = String(payload.groupId || '').trim()
+    const peerId = String(payload.peerId || '').trim()
+    const body = displayTitle(payload.text || payload.excerpt || payload.body)
+    return {
+      title: peer ? `新消息 · ${peer}` : 'FDE-X 新消息',
+      body,
+      href: 'im',
+      ...(groupId ? { groupId } : {}),
+      ...(peerId ? { peerId } : {}),
+      gate: 'im',
+    }
+  }
   return null
 }
 
@@ -113,6 +127,23 @@ test('mcp down becomes a connector notice', () => {
   const notice = noticeFromEvent({ type: 'mcp.health.changed', payload: { ok: false, serverName: 'playwright' } })
   assert.equal(notice.title, '连接器异常：playwright')
   assert.equal(notice.href, 'mcp')
+})
+
+test('incoming IM becomes a system notice', () => {
+  const notice = noticeFromEvent({
+    type: 'im.message.received',
+    payload: { peerId: 'p1', fromName: '甲', text: '下午三点见' },
+  })
+  assert.equal(notice.title, '新消息 · 甲')
+  assert.equal(notice.body, '下午三点见')
+  assert.equal(notice.href, 'im')
+  assert.equal(notice.peerId, 'p1')
+  assert.equal(notice.gate, 'im')
+})
+
+test('IMScreen listens for incoming IM notices', () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../src/components/IMScreen.tsx'), 'utf8')
+  assert.match(src, /im\.message\.received/)
 })
 
 test('packaged notices go through the desktop bridge, not in-page audio', () => {

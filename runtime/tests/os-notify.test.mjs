@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -10,16 +10,10 @@ import {
   osascriptNotifyArgs,
 } from '../os-notify.mjs'
 
-test('osNotify skips when the packaged BFF has FDE_STATIC_DIR', async () => {
-  const { osNotify } = await import('../os-notify.mjs')
-  const previous = process.env.FDE_STATIC_DIR
-  process.env.FDE_STATIC_DIR = '/tmp/fde-static'
-  try {
-    assert.equal(osNotify({ title: 'FDE-X', body: '会话完成' }), undefined)
-  } finally {
-    if (previous == null) delete process.env.FDE_STATIC_DIR
-    else process.env.FDE_STATIC_DIR = previous
-  }
+test('packaged BFF leaves OS banners to Electron', () => {
+  const src = readFileSync(new URL('../os-notify.mjs', import.meta.url), 'utf8')
+  assert.match(src, /if \(process\.env\.FDE_STATIC_DIR\) return/)
+  assert.doesNotMatch(src, /type === 'im\.message\.received'/)
 })
 
 test('osNotifyFromEnvelope is silent under node:test', () => {
@@ -37,7 +31,7 @@ test('deliverOsNotify prefers the bundled helper and plays Glass', () => {
   const used = deliverOsNotify({ title: 'FDE-X', body: '会话完成：后台' }, {
     platform: 'darwin',
     paths,
-    exists: (p) => p === paths.bin || p === paths.log,
+    exists: (p) => p === paths.bin || p === paths.log || p === '/System/Library/Sounds/Glass.aiff',
     execFile: (cmd, args) => {
       calls.push({ cmd, args })
       return { unref() {} }
@@ -66,14 +60,11 @@ test('deliverOsNotify skips a helper macOS has already refused', () => {
       return { unref() {} }
     },
   })
-  assert.equal(used.used, 'osascript')
-  assert.equal(calls[0].cmd, 'osascript')
-  assert.equal(calls[0].args[1], 'tell application id "com.fde-x.workstation"')
-  assert.match(calls[0].args.join('\n'), /会话完成/)
-  assert.equal(calls[1].cmd, 'afplay')
+  assert.equal(used.used, 'none')
+  assert.equal(calls.length, 0)
 })
 
-test('deliverOsNotify falls back to osascript when helper is missing', () => {
+test('deliverOsNotify does not use Script Editor osascript when helper is missing', () => {
   const calls = []
   const used = deliverOsNotify({ title: 'FDE-X', body: '任务完成' }, {
     platform: 'darwin',
@@ -84,11 +75,8 @@ test('deliverOsNotify falls back to osascript when helper is missing', () => {
       return { unref() {} }
     },
   })
-  assert.equal(used.used, 'osascript')
-  assert.equal(calls[0].cmd, 'osascript')
-  assert.equal(calls[0].args[1], 'tell application id "com.fde-x.workstation"')
-  assert.match(calls[0].args.join('\n'), /任务完成/)
-  assert.equal(calls[1].cmd, 'afplay')
+  assert.equal(used.used, 'none')
+  assert.equal(calls.length, 0)
 })
 
 test('osascriptNotifyArgs attributes the banner to FDE-X', () => {
