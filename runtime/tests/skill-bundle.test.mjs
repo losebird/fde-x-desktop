@@ -157,7 +157,7 @@ test('listSkillManifests finds ClawHub scoped @org/name packs', async () => {
   }
 })
 
-test('skillRootsForCwd includes the FDE ledger, the project, and ~/.agents/skills', async () => {
+test('skillRootsForCwd includes the FDE ledger and the project, not ~/.agents/skills', async () => {
   const previous = process.env.FDE_DSH_HOME
   const previousAgents = process.env.DSH_AGENTS_HOME
   const home = await mkdtemp(join(tmpdir(), 'fde-skill-roots-'))
@@ -166,12 +166,32 @@ test('skillRootsForCwd includes the FDE ledger, the project, and ~/.agents/skill
   process.env.FDE_DSH_HOME = home
   delete process.env.DSH_AGENTS_HOME
   try {
-    const { homedir } = await import('node:os')
     const roots = await skillRootsForCwd({ dshHome: home }, cwd)
     const sources = roots.map((row) => row.source)
-    assert.deepEqual(sources.sort(), ['project-agents', 'project-dsh', 'user-agents', 'user-dsh'].sort())
+    assert.deepEqual(sources.sort(), ['project-agents', 'project-dsh', 'user-dsh'].sort())
     assert.equal(roots.find((row) => row.source === 'user-dsh').path, join(home, 'skills'))
-    assert.equal(roots.find((row) => row.source === 'user-agents').path, join(homedir(), '.agents', 'skills'))
+    assert.equal(roots.some((row) => row.source === 'user-agents'), false)
+  } finally {
+    if (previous == null) delete process.env.FDE_DSH_HOME
+    else process.env.FDE_DSH_HOME = previous
+    if (previousAgents == null) delete process.env.DSH_AGENTS_HOME
+    else process.env.DSH_AGENTS_HOME = previousAgents
+    await rm(home, { recursive: true, force: true })
+  }
+})
+
+test('skillRootsForCwd adds DSH_AGENTS_HOME only when it is set', async () => {
+  const previous = process.env.FDE_DSH_HOME
+  const previousAgents = process.env.DSH_AGENTS_HOME
+  const home = await mkdtemp(join(tmpdir(), 'fde-skill-agents-'))
+  const cwd = join(home, 'ws')
+  const agents = join(home, 'agents')
+  await mkdir(join(cwd, '.git'), { recursive: true })
+  process.env.FDE_DSH_HOME = home
+  process.env.DSH_AGENTS_HOME = agents
+  try {
+    const roots = await skillRootsForCwd({ dshHome: home }, cwd)
+    assert.equal(roots.find((row) => row.source === 'user-agents').path, join(agents, 'skills'))
   } finally {
     if (previous == null) delete process.env.FDE_DSH_HOME
     else process.env.FDE_DSH_HOME = previous

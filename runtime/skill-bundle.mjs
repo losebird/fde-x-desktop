@@ -102,7 +102,7 @@ export async function skillRootsForCwd(aiRuntime, cwd) {
     roots.push({ path: resolve(dir), source: 'custom' })
   }
   const dshHome = String((aiRuntime && aiRuntime.dshHome) || process.env.FDE_DSH_HOME || '').trim()
-  const agentsHome = String(process.env.DSH_AGENTS_HOME || join(homedir(), '.agents')).trim()
+  const agentsHome = String(process.env.DSH_AGENTS_HOME || '').trim()
   if (dshHome) {
     await seedBuiltinSkills(dshHome)
     roots.push({ path: join(dshHome, 'skills'), source: 'user-dsh' })

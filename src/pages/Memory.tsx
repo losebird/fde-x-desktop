@@ -1407,7 +1407,7 @@ function BridgePanel({ cwd }: { cwd: string }) {
   const others = peers.filter((row) => canonicalWorkspaceCwd(row.cwd) && canonicalWorkspaceCwd(row.cwd) !== cwd)
   return (
     <div className="space-y-3 text-sm min-w-0">
-      <p className="text-xs text-ink-muted">把两个工作区的图连起来，搜索可以跟着桥走到对面。</p>
+      <p className="text-xs text-ink-muted">把两个工作区的图连起来，搜索和新会话的续场简报才能走到对面。没建桥时只续本工作区。</p>
       {others.map((row) => (
         <button key={row.id} type="button" className="btn w-full text-left break-all" onClick={() => create(row.cwd || '')}>
           接到 {row.name} · {row.cwd}
