@@ -235,7 +235,7 @@ function registerTools(ctx, { defineTool, config }) {
   // Spec 06 owns briefing submit.
   ctx.tools.register(defineTool({
     name: 'fde_briefing_submit',
-    description: 'Submit briefing sections to FDE-X.',
+    description: 'Submit briefing AI sections to FDE-X. This is the only way to finish a briefing; do not write the digest as assistant text.',
     parameters: {
       requestId: { type: 'string', required: true },
       sections: { type: 'array', required: true, items: { type: 'object', additionalProperties: true } },

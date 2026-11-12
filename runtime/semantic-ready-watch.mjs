@@ -1,7 +1,7 @@
 import { emit } from './events.mjs'
 import { withProbeTimeout } from './live-probe.mjs'
 import { ENGINE_PROBE_MS, ENGINE_WATCH_MS, engineOccupancyFp, engineProbeKind } from './engine-probe.mjs'
-import { llmFingerprint, readLlmOccupancySync, writeLlmOccupancy } from './dsh-default-llm.mjs'
+import { llmSpawnFingerprint, readLlmOccupancySync, shouldReloadSidecarForLlm, writeLlmOccupancy } from './dsh-default-llm.mjs'
 
 export function startSemanticReadyWatch(deps) {
   const semanticOs = deps && deps.semanticOs
@@ -29,38 +29,43 @@ export function startSemanticReadyWatch(deps) {
       result = null
     }
     const kind = engineProbeKind(result, failed)
-    ticking = false
-    if (kind === 'probe-failed') return
-    if (kind === 'unready' && typeof kick === 'function') kick(result)
-    if (typeof readHostLlm === 'function') {
-      try {
-        const host = await readHostLlm()
-        if (host) {
-          result = {
-            ...result,
-            llmProvider: host.dshProvider || result.llmProvider,
-            llmModel: host.model || result.llmModel,
-            llmReady: Boolean(host.configured || result.llmReady),
+    try {
+      if (kind === 'probe-failed') return
+      if (kind === 'unready' && typeof kick === 'function') kick(result)
+      if (typeof readHostLlm === 'function') {
+        try {
+          const host = await readHostLlm()
+          if (host) {
+            result = {
+              ...result,
+              llmProvider: host.dshProvider || result.llmProvider,
+              llmModel: host.model || result.llmModel,
+              llmReady: Boolean(host.configured || result.llmReady),
+            }
           }
-        }
-        if (dshHome && host && host.dshProvider) {
-          await writeLlmOccupancy(dshHome, host)
-          const hostFp = llmFingerprint(host)
-          const spawned = String((readLlmOccupancySync(dshHome) || {}).spawnedFp || lastSpawned || '')
-          if (kind === 'ready' && hostFp && hostFp !== spawned) {
-            lastSpawned = hostFp
-            await writeLlmOccupancy(dshHome, { ...host, spawnedFp: hostFp })
-            await semanticOs('/retry-ready', { method: 'POST', body: {} })
+          if (dshHome && host && host.dshProvider) {
+            const hostFp = llmSpawnFingerprint(host)
+            const spawned = String((readLlmOccupancySync(dshHome) || {}).spawnedFp || lastSpawned || '')
+            if (kind === 'ready' && shouldReloadSidecarForLlm(host, spawned)) {
+              lastSpawned = hostFp
+              await writeLlmOccupancy(dshHome, { ...host, spawnedFp: hostFp })
+              await semanticOs('/retry-ready', { method: 'POST', body: {} })
+            } else if (hostFp) {
+              lastSpawned = hostFp
+              await writeLlmOccupancy(dshHome, hostFp === spawned ? host : { ...host, spawnedFp: hostFp })
+            }
           }
+        } catch {
+          /* host llm occupancy stays */
         }
-      } catch {
-        /* host llm occupancy stays */
       }
+      const fp = engineOccupancyFp(kind, result)
+      if (!fp || fp === last) return
+      last = fp
+      emit('memory.engine.changed', result, { source: 'bff' })
+    } finally {
+      ticking = false
     }
-    const fp = engineOccupancyFp(kind, result)
-    if (!fp || fp === last) return
-    last = fp
-    emit('memory.engine.changed', result, { source: 'bff' })
   }
 
   void tick()

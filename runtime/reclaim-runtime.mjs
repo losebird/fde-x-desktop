@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { FDE_RUNTIME_PORT } from './config.mjs'
+import { killProcessGroup } from './process-group.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -26,6 +27,10 @@ export function isPidAlive(pid) {
 
 export function isRuntimeServerCommand(command) {
   return /(?:^|[\\/\s])runtime\/(?:server|boot)\.mjs(?:\s|$)/u.test(String(command || ''))
+}
+
+export function isSemanticSidecarCommand(command) {
+  return /dsh-semantic-os.*bootstrap\.py|semantic-os\/python\/bootstrap\.py/u.test(String(command || ''))
 }
 
 function parsePidList(stdout) {
@@ -229,6 +234,7 @@ export async function collectStrayPids({
   const bff = await pidsMatchingRuntimeServer({ runtimePort, keep: [...keepSet], onWarn })
   const bffKids = []
   for (const pid of bff) bffKids.push(...await pidsChildrenOf(pid))
+  const sidecar = await pidsMatchingSemanticSidecar({ keep: [...keepSet, ...bff], dshHome, onWarn })
   const core = [...new Set([...recorded, ...profile, ...lan])].filter((pid) => !keepSet.has(pid) && isPidAlive(pid))
   const parents = []
   for (const pid of core) {
@@ -240,21 +246,38 @@ export async function collectStrayPids({
     const sameHome = dshHome && await processHasDshHome(ppid, dshHome)
     if (samePort || sameHome) parents.push(ppid)
   }
-  return [...new Set([...core, ...bff, ...bffKids, ...parents])].filter((pid) => !keepSet.has(pid) && isPidAlive(pid))
+  return [...new Set([...core, ...bff, ...bffKids, ...sidecar, ...parents])].filter((pid) => !keepSet.has(pid) && isPidAlive(pid))
+}
+
+export async function pidsMatchingSemanticSidecar({ keep = [], dshHome = '', onWarn } = {}) {
+  const keepSet = new Set([...keep, process.pid].filter((pid) => Number.isInteger(pid) && pid > 1))
+  const raw = [
+    ...await pgrepPattern('dsh-semantic-os.*bootstrap.py', onWarn),
+    ...await pgrepPattern('semantic-os/python/bootstrap.py', onWarn),
+  ]
+  const out = new Set()
+  for (const pid of raw) {
+    if (keepSet.has(pid) || !isPidAlive(pid)) continue
+    const command = await processCommand(pid)
+    if (!isSemanticSidecarCommand(command)) continue
+    const ppid = await parentPid(pid)
+    const orphan = !ppid
+    const sameHome = dshHome ? await processHasDshHome(pid, dshHome) : false
+    if (orphan || sameHome) out.add(pid)
+  }
+  return [...out]
 }
 
 export async function terminatePids(pids) {
   const unique = [...new Set(pids)].filter((pid) => Number.isInteger(pid) && pid > 1 && pid !== process.pid)
   for (const pid of unique) {
-    try { process.kill(pid, 'SIGTERM') } catch { /* already gone */ }
+    killProcessGroup(pid, 'SIGTERM')
   }
   if (unique.length === 0) return
   await new Promise((resolveWait) => setTimeout(resolveWait, 400))
   for (const pid of unique) {
-    try {
-      process.kill(pid, 0)
-      process.kill(pid, 'SIGKILL')
-    } catch { /* gone */ }
+    if (!isPidAlive(pid)) continue
+    killProcessGroup(pid, 'SIGKILL')
   }
 }
 

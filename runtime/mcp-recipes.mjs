@@ -21,22 +21,49 @@ function hostNode(env = process.env) {
   return process.execPath
 }
 
-function findCuaBin(resources, platform = process.platform, arch = process.arch) {
+export function defaultHostCuaBins(platform = process.platform, env = process.env) {
+  const home = String(env.HOME || env.USERPROFILE || '').trim()
+  const bins = []
+  if (platform === 'darwin') {
+    bins.push('/Applications/CuaDriver.app/Contents/MacOS/cua-driver')
+    if (home) bins.push(join(home, 'Applications/CuaDriver.app/Contents/MacOS/cua-driver'))
+  }
+  if (home) {
+    bins.push(join(home, '.local', 'bin', 'cua-driver'))
+    if (platform === 'win32') bins.push(join(home, 'AppData', 'Local', 'cua-driver', 'cua-driver.exe'))
+  }
+  return bins
+}
+
+function findCuaBin(resources, platform = process.platform, arch = process.arch, {
+  env = process.env,
+  hostCuaBins,
+} = {}) {
   const names = platform === 'win32' ? ['cua-driver.exe', 'cua-driver.cmd', 'cua-driver'] : ['cua-driver']
   for (const dir of cuaDriverDirs(resources, platform, arch)) {
     for (const name of names) {
       const file = join(dir, name)
-      if (existsSync(file)) return file
+      if (existsSync(file)) return { bin: file, source: 'envelope' }
     }
     try {
       const entries = readdirSync(dir)
       const match = entries.find((name) => /^cua-driver/i.test(name))
-      if (match) return join(dir, match)
+      if (match) return { bin: join(dir, match), source: 'envelope' }
     } catch {
       /* empty dir */
     }
   }
-  return ''
+  const hostBins = Array.isArray(hostCuaBins) ? hostCuaBins : defaultHostCuaBins(platform, env)
+  for (const file of hostBins) {
+    if (file && existsSync(file)) return { bin: file, source: 'host' }
+  }
+  const fromPath = resolveRecipeCommand(platform === 'win32' ? 'cua-driver.exe' : 'cua-driver', {
+    resources,
+    platform,
+    env,
+  })
+  if (fromPath) return { bin: fromPath, source: 'host' }
+  return { bin: '', source: '' }
 }
 
 function resolveRecipeCommand(command, { resources, platform, env }) {
@@ -78,10 +105,12 @@ export function listMcpRecipes({
   platform = process.platform,
   arch = process.arch,
   env = process.env,
+  hostCuaBins,
 } = {}) {
   const node = hostNode(env)
   const mailLauncher = join(runtimeDir, 'mail-mcp-launch.mjs')
-  const cuaBin = findCuaBin(resources, platform, arch)
+  const cuaHit = findCuaBin(resources, platform, arch, { env, hostCuaBins })
+  const cuaBin = cuaHit.bin
   const npxName = platform === 'win32' ? 'npx.cmd' : 'npx'
   const npxBin = resolveRecipeCommand(npxName, { resources: resources || FDE_RESOURCES, platform, env })
   const npxOk = launcherLoads(npxBin)
@@ -111,7 +140,11 @@ export function listMcpRecipes({
     {
       id: 'cua',
       title: 'Computer Use',
-      hint: cuaBin ? '使用安装包内的 Cua Driver' : '安装包未随带 Cua Driver',
+      hint: cuaHit.source === 'envelope'
+        ? '使用安装包内的 Cua Driver'
+        : cuaBin
+          ? '使用本机已装的 Cua Driver'
+          : '安装包未随带 Cua Driver，本机也没有 CuaDriver.app',
       available: Boolean(cuaBin),
       transport: 'stdio',
       serverName: 'cua-driver-mcp',

@@ -1701,7 +1701,35 @@ export class RuntimeApi {
     return result.data
   }
 
-  async installSkillBundle(input: { source: string; root: string; cwd?: string }, signal?: AbortSignal): Promise<{ name: string; dest: string; path: string }> {
+  async previewSkillInstall(input: { query: string; cwd?: string }, signal?: AbortSignal): Promise<{
+    found: boolean
+    hint?: string
+    previewId?: string
+    name?: string
+    origin?: string
+    source?: string
+    match?: { slug?: string; displayName?: string; summary?: string }
+    scan?: { engine?: string; score?: number; verdict?: string; findings?: Array<{ id?: string; severity?: string; title?: string; file?: string }>; advice?: string }
+  }> {
+    const result = await this.request<{ data: Record<string, unknown> }>('/api/v1/skills/preview', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data as {
+      found: boolean
+      hint?: string
+      previewId?: string
+      name?: string
+      origin?: string
+      source?: string
+      match?: { slug?: string; displayName?: string; summary?: string }
+      scan?: { engine?: string; score?: number; verdict?: string; findings?: Array<{ id?: string; severity?: string; title?: string; file?: string }>; advice?: string }
+    }
+  }
+
+  async installSkillBundle(input: { source?: string; previewId?: string; root: string; cwd?: string }, signal?: AbortSignal): Promise<{ name: string; dest: string; path: string }> {
     const result = await this.request<{ data: { name: string; dest: string; path: string } }>('/api/v1/skills/install', {
       method: 'POST',
       signal,

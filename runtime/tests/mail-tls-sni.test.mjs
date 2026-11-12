@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test } from 'node:test'
 import { applyServerName } from '../mail-tls-sni.cjs'
-import { briefingToolErrorText, mailHarvestLabel, mergeMailboxHarvest } from '../briefing/ask-ai.mjs'
+import { briefingToolErrorText, mailBareTool, mailHarvestLabel, mergeMailboxHarvest } from '../briefing/ask-ai.mjs'
+import { isMailMcpRow } from '../mail-providers.mjs'
 
 const here = dirname(fileURLToPath(import.meta.url))
 
@@ -41,6 +42,19 @@ test('briefingToolErrorText folds the Node TLS dump', () => {
 
 test('briefingToolErrorText folds Gmail invalid credentials', () => {
   assert.equal(briefingToolErrorText('{"error":"Invalid credentials (Failure)"}'), '邮箱账号或授权码无效')
+})
+
+test('isMailMcpRow treats IMAP env as mail even when the server is not named mail', () => {
+  assert.equal(isMailMcpRow({ serverName: 'QQ-Mail', env: { IMAP_HOST: 'imap.qq.com' } }), true)
+  assert.equal(isMailMcpRow({ serverName: 'gmail', env: { IMAP_HOST: 'imap.gmail.com' } }), true)
+  assert.equal(isMailMcpRow({ serverName: '163-mail', env: { IMAP_HOST: 'imap.163.com' } }), true)
+  assert.equal(isMailMcpRow({ serverName: 'playwright' }), false)
+})
+
+test('mailBareTool strips a mcp__mail__ prefix so the live server name can own the tool', () => {
+  assert.equal(mailBareTool('mcp__mail__imap_search'), 'imap_search')
+  assert.equal(mailBareTool('mcp__QQ-Mail__imap_search'), 'imap_search')
+  assert.equal(mailBareTool('imap_search'), 'imap_search')
 })
 
 test('mailHarvestLabel follows IMAP host', () => {

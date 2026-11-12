@@ -19,4 +19,5 @@ test('workbench shortcuts cover the Settings table', () => {
   assert.match(screen, /handleWorkbenchKeydown/)
   assert.match(main, /before-input-event/)
   assert.match(main, /fde:shortcut/)
+  assert.match(main, /requestSingleInstanceLock/)
 })

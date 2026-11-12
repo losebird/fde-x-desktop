@@ -9,6 +9,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { promisify } from 'node:util'
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { profileCordisPatchPath } from './mcp-archive.mjs'
+import { seedBuiltinSkills } from './skill-seed.mjs'
 
 const execFileAsync = promisify(execFile)
 const GITHUB_REPO = /^https:\/\/(?:www\.)?github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/(?:tree|blob)\/([^/]+)(?:\/(.*))?)?(?:\/)?(?:[?#].*)?$/i
@@ -102,7 +103,10 @@ export async function skillRootsForCwd(aiRuntime, cwd) {
   }
   const dshHome = String((aiRuntime && aiRuntime.dshHome) || process.env.FDE_DSH_HOME || '').trim()
   const agentsHome = String(process.env.DSH_AGENTS_HOME || join(homedir(), '.agents')).trim()
-  if (dshHome) roots.push({ path: join(dshHome, 'skills'), source: 'user-dsh' })
+  if (dshHome) {
+    await seedBuiltinSkills(dshHome)
+    roots.push({ path: join(dshHome, 'skills'), source: 'user-dsh' })
+  }
   if (agentsHome) roots.push({ path: join(agentsHome, 'skills'), source: 'user-agents' })
   const seen = new Set()
   return roots.filter((row) => {
@@ -482,7 +486,7 @@ export function parseSkillInstallSource(raw) {
   return { kind: 'local', path: text }
 }
 
-async function copySkillIntoRoot(src, destRoot) {
+export async function copySkillIntoRoot(src, destRoot) {
   const info = await stat(src)
   let name = ''
   if (info.isFile()) {
@@ -602,7 +606,40 @@ async function installFromNpx(parsed, destRoot) {
   }
 }
 
-export async function installSkillBundle({ source, root, fetch: fetchImpl } = {}) {
+export async function stageSkillSource(source, fetchImpl) {
+  const parsed = parseSkillInstallSource(source)
+  if (parsed.kind === 'empty') throw fail('invalid_skill_source', '要填写技能名称或安装来源。')
+  const tmp = await mkdtemp(join(tmpdir(), 'fde-skill-stage-'))
+  try {
+    if (parsed.kind === 'clawhub') {
+      const installed = await installFromClawhub(parsed, tmp)
+      return { tmp, src: installed.dest, name: installed.name, origin: 'clawhub' }
+    }
+    if (parsed.kind === 'npx') {
+      const installed = await installFromNpx(parsed, tmp)
+      return { tmp, src: installed.dest, name: installed.name, origin: 'npx' }
+    }
+    if (parsed.kind === 'github') {
+      const got = await materializeGithubSkill(parsed.github, fetchImpl || globalThis.fetch.bind(globalThis))
+      await rm(tmp, { recursive: true, force: true }).catch(() => undefined)
+      const name = (await readSkillNameFromManifest(join(got.src, 'SKILL.md')).catch(() => ''))
+        || sanitizeSkillName(parsed.github.repo)
+      return { tmp: got.tmp, src: got.src, name, origin: 'github' }
+    }
+    if (parsed.kind === 'local') {
+      const src = resolve(parsed.path)
+      const copied = await copySkillIntoRoot(src, tmp)
+      return { tmp, src: copied.dest, name: copied.name, origin: 'local' }
+    }
+    throw fail('invalid_skill_source', '来源可以是技能名称、本机目录、GitHub 地址、npx skills add，或 clawhub install。')
+  } catch (error) {
+    await rm(tmp, { recursive: true, force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+export async function installSkillBundle({ source, root, fetch: fetchImpl, stageOnly = false } = {}) {
+  if (stageOnly) return stageSkillSource(source, fetchImpl)
   const destRoot = resolve(root)
   const parsed = parseSkillInstallSource(source)
   if (parsed.kind === 'clawhub') return installFromClawhub(parsed, destRoot)

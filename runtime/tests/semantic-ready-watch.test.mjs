@@ -2,12 +2,13 @@ import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { startSemanticReadyWatch } from '../semantic-ready-watch.mjs'
-import { engineProbeKind } from '../engine-probe.mjs'
+import { engineProbeKind, shouldAutoRestartSemantic } from '../engine-probe.mjs'
 import { configureEventBus, subscribe } from '../events.mjs'
 import { openDatabase } from '../db.mjs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { mkdir } from 'node:fs/promises'
+import { mkdir, mkdtemp } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 
 test('engine probe timeout is probe-failed, successful false is unready', () => {
   assert.equal(engineProbeKind({ ready: true }), 'ready')
@@ -15,6 +16,14 @@ test('engine probe timeout is probe-failed, successful false is unready', () => 
   assert.equal(engineProbeKind({ ready: false, reason: 'timeout' }, true), 'probe-failed')
   assert.equal(engineProbeKind(null, true), 'probe-failed')
   assert.equal(engineProbeKind({ probe: 'failed' }), 'probe-failed')
+})
+
+test('auto restart skips start_timeout and start_failed', () => {
+  assert.equal(shouldAutoRestartSemantic({ ready: true }), false)
+  assert.equal(shouldAutoRestartSemantic({ ready: false, reason: 'start_timeout' }), false)
+  assert.equal(shouldAutoRestartSemantic({ ready: false, reason: 'start_failed' }), false)
+  assert.equal(shouldAutoRestartSemantic({ ready: false, reason: 'exited' }), true)
+  assert.equal(shouldAutoRestartSemantic({ ready: false, reason: 'boot', detail: 'python exited 0' }), true)
 })
 
 test('semantic ready watch emits only when occupancy flips; probe-failed does not emit', async () => {
@@ -50,4 +59,31 @@ test('semantic ready watch emits only when occupancy flips; probe-failed does no
   db.close()
   assert.ok(seen.some((row) => row.ready === true))
   assert.equal(seen.filter((row) => row.ready === true).length, 1)
+})
+
+test('ready watch does not recycle sidecar on first occupancy stamp', async () => {
+  const root = join(fileURLToPath(new URL('..', import.meta.url)), '..')
+  const dbPath = `/tmp/fde-semantic-llm-${Date.now()}.sqlite`
+  const home = await mkdtemp(join(tmpdir(), 'fde-llm-watch-'))
+  await mkdir('/tmp', { recursive: true })
+  const db = openDatabase(dbPath, join(root, 'runtime/migrations'))
+  configureEventBus(db)
+  let retries = 0
+  const stop = startSemanticReadyWatch({
+    probeMs: 40,
+    watchMs: 80,
+    dshHome: home,
+    semanticOs: async (path) => {
+      if (path === '/retry-ready') {
+        retries += 1
+        return { ready: true }
+      }
+      return { ready: true }
+    },
+    readHostLlm: async () => ({ dshProvider: 'grok2api', model: 'grok-4.6', apiKeyEnv: 'GROK2API_API_KEY', configured: true }),
+  })
+  await new Promise((resolve) => setTimeout(resolve, 250))
+  stop()
+  db.close()
+  assert.equal(retries, 0)
 })

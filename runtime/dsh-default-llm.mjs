@@ -22,6 +22,22 @@ export function llmFingerprint(llm) {
   return `${view.llmProvider}|${view.llmModel}|${env}|${view.llmReady ? '1' : '0'}`
 }
 
+/** Spawn env only. Ready/configured flaps and must not recycle a live sidecar. */
+export function llmSpawnFingerprint(llm) {
+  const provider = String((llm && (llm.dshProvider || llm.llmProvider)) || '').trim()
+  if (!provider) return ''
+  const model = String((llm && (llm.model || llm.llmModel)) || '').trim()
+  const env = String((llm && llm.apiKeyEnv) || '').trim()
+  return `${provider}|${model}|${env}`
+}
+
+export function shouldReloadSidecarForLlm(host, spawnedFp) {
+  const next = llmSpawnFingerprint(host)
+  const prev = String(spawnedFp || '').trim()
+  if (!next || !prev) return false
+  return next !== prev
+}
+
 export function llmFromDescribe(namespaces, credentials) {
   const rows = Array.isArray(namespaces) ? namespaces : []
   const def = rows.find((row) => row && row.ns === 'agent-default-model')
@@ -81,13 +97,22 @@ export async function writeLlmOccupancy(dshHome, llm) {
   if (!home) return
   const dest = llmOccupancyPath(home)
   const prev = readLlmOccupancySync(home) || {}
+  const provider = String((llm && llm.dshProvider) || '').trim()
+  if (!provider) {
+    const spawnedFp = String((llm && llm.spawnedFp) || '').trim()
+    if (prev.dshProvider && spawnedFp && spawnedFp !== String(prev.spawnedFp || '')) {
+      await mkdir(dirname(dest), { recursive: true })
+      await writeFile(dest, `${JSON.stringify({ ...prev, spawnedFp })}\n`, 'utf8')
+    }
+    return
+  }
   const body = {
-    dshProvider: String((llm && llm.dshProvider) || ''),
-    model: String((llm && llm.model) || ''),
-    api: String((llm && llm.api) || ''),
-    apiKeyEnv: String((llm && llm.apiKeyEnv) || ''),
-    baseUrl: String((llm && llm.baseUrl) || ''),
-    configured: Boolean(llm && llm.configured),
+    dshProvider: provider,
+    model: String((llm && llm.model) || prev.model || ''),
+    api: String((llm && llm.api) || prev.api || ''),
+    apiKeyEnv: String((llm && llm.apiKeyEnv) || prev.apiKeyEnv || ''),
+    baseUrl: String((llm && llm.baseUrl) || prev.baseUrl || ''),
+    configured: Boolean((llm && 'configured' in (llm || {})) ? llm.configured : prev.configured),
     spawnedFp: String((llm && llm.spawnedFp) || prev.spawnedFp || ''),
   }
   await mkdir(dirname(dest), { recursive: true })

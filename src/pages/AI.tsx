@@ -568,7 +568,7 @@ export default function AI() {
       active = false
       abort.abort()
     }
-  }, [replaceWorkspaces])
+  }, [])
 
   useEffect(() => {
     if (!runtimeConnected || loadingRuntime) return

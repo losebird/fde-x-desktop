@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { llmFingerprint, llmFromDescribe, llmPublicView, writeLlmOccupancy } from '../dsh-default-llm.mjs'
+import { llmFingerprint, llmFromDescribe, llmPublicView, llmSpawnFingerprint, shouldReloadSidecarForLlm, writeLlmOccupancy, readLlmOccupancySync } from '../dsh-default-llm.mjs'
 import { readDshLlm, llmFromDescribe as overlayFromDescribe } from '../plugins/dsh-semantic-os/dsh-llm.js'
 
 test('llmFromDescribe uses Host namespaces and credential configured flag', () => {
@@ -30,6 +30,32 @@ test('llmFromDescribe uses Host namespaces and credential configured flag', () =
   assert.equal(view.llmProvider, 'grok2api')
   assert.equal(view.llmModel, 'grok-4.6')
   assert.equal(view.llmReady, true)
+})
+
+test('sidecar reload ignores empty host and ready flaps', () => {
+  const host = { dshProvider: 'grok2api', model: 'grok-4.6', apiKeyEnv: 'GROK2API_API_KEY', configured: true }
+  const fp = llmSpawnFingerprint(host)
+  assert.equal(fp.includes('|1'), false)
+  assert.equal(shouldReloadSidecarForLlm({}, 'grok2api|grok-4.6|GROK2API_API_KEY'), false)
+  assert.equal(shouldReloadSidecarForLlm(host, ''), false)
+  assert.equal(shouldReloadSidecarForLlm(host, fp), false)
+  assert.equal(shouldReloadSidecarForLlm({ ...host, configured: false }, fp), false)
+  assert.equal(shouldReloadSidecarForLlm({ ...host, model: 'grok-4' }, fp), true)
+})
+
+test('writeLlmOccupancy does not blank a known provider', async () => {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-llm-empty-'))
+  await writeLlmOccupancy(home, {
+    dshProvider: 'grok2api',
+    model: 'grok-4.6',
+    apiKeyEnv: 'GROK2API_API_KEY',
+    configured: true,
+    spawnedFp: 'grok2api|grok-4.6|GROK2API_API_KEY',
+  })
+  await writeLlmOccupancy(home, { dshProvider: '', configured: false })
+  const row = readLlmOccupancySync(home)
+  assert.equal(row.dshProvider, 'grok2api')
+  assert.equal(row.spawnedFp, 'grok2api|grok-4.6|GROK2API_API_KEY')
 })
 
 test('llmFromDescribe without Host default model is empty', () => {

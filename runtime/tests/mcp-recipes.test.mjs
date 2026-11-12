@@ -18,52 +18,29 @@ test('mail recipe points at the bundled launcher', () => {
   assert.equal(mail.fields.some((field) => field.key === 'IMAP_HOST'), true)
 })
 
-test('playwright recipe follows npx launcher load', () => {
-  const root = join(tmpdir(), `fde-recipe-npx-${process.pid}`)
-  const binDir = join(root, 'node', 'bin')
-  mkdirSync(binDir, { recursive: true })
-  writeFileSync(join(binDir, 'npx'), '#!/usr/bin/env node\nrequire("../lib/cli.js")\n')
-  chmodSync(join(binDir, 'npx'), 0o755)
-  try {
-    const recipes = listMcpRecipes({
-      runtimeDir: FDE_RUNTIME_DIR,
-      resources: root,
-      env: { PATH: binDir },
-    })
-    const playwright = recipes.find((row) => row.id === 'playwright')
-    assert.equal(playwright.available, false)
-    assert.match(playwright.hint, /无法加载/)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+test('playwright recipe uses the cache-first npx shim', () => {
+  const recipes = listMcpRecipes({
+    runtimeDir: FDE_RUNTIME_DIR,
+    resources: tmpdir(),
+    env: { PATH: '/no-npx' },
+  })
+  const playwright = recipes.find((row) => row.id === 'playwright')
+  assert.equal(playwright.available, true)
+  assert.equal(playwright.command.endsWith('mcp-npx-bin/npx'), true)
+  assert.deepEqual(playwright.args, ['-y', '@playwright/mcp', '--headless'])
+  assert.match(playwright.hint, /@playwright\/mcp/)
 })
 
-test('playwright recipe is available when npx prints a version', () => {
-  const root = join(tmpdir(), `fde-recipe-npx-ok-${process.pid}`)
-  const binDir = join(root, 'node', 'bin')
-  mkdirSync(binDir, { recursive: true })
-  writeFileSync(join(binDir, 'npx'), '#!/bin/sh\necho 11.0.0\n')
-  chmodSync(join(binDir, 'npx'), 0o755)
-  try {
-    const recipes = listMcpRecipes({
-      runtimeDir: FDE_RUNTIME_DIR,
-      resources: root,
-      env: { PATH: binDir },
-    })
-    const playwright = recipes.find((row) => row.id === 'playwright')
-    assert.equal(playwright.available, true)
-    assert.equal(playwright.command, join(binDir, 'npx'))
-    assert.deepEqual(playwright.args, ['-y', '@playwright/mcp', '--headless'])
-    assert.match(playwright.hint, /@playwright\/mcp/)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('cua recipe stays unavailable without envelope binary', () => {
-  const recipes = listMcpRecipes({ runtimeDir: FDE_RUNTIME_DIR, resources: tmpdir() })
+test('cua recipe stays unavailable without envelope or host binary', () => {
+  const recipes = listMcpRecipes({
+    runtimeDir: FDE_RUNTIME_DIR,
+    resources: tmpdir(),
+    env: { PATH: '/no-such-cua-path', HOME: tmpdir() },
+    hostCuaBins: [],
+  })
   const cua = recipes.find((row) => row.id === 'cua')
   assert.equal(cua.available, false)
+  assert.match(cua.hint, /本机也没有/)
 })
 
 test('cua recipe uses envelope binary when present', () => {
@@ -73,10 +50,36 @@ test('cua recipe uses envelope binary when present', () => {
   const bin = join(dir, process.platform === 'win32' ? 'cua-driver.exe' : 'cua-driver')
   writeFileSync(bin, '')
   try {
-    const recipes = listMcpRecipes({ runtimeDir: FDE_RUNTIME_DIR, resources: root })
+    const recipes = listMcpRecipes({
+      runtimeDir: FDE_RUNTIME_DIR,
+      resources: root,
+      hostCuaBins: ['/Applications/CuaDriver.app/Contents/MacOS/cua-driver'],
+    })
     const cua = recipes.find((row) => row.id === 'cua')
     assert.equal(cua.available, true)
     assert.equal(cua.command, bin)
+    assert.match(cua.hint, /安装包内/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('cua recipe uses host CuaDriver when the envelope has none', () => {
+  const root = join(tmpdir(), `fde-recipe-cua-host-${process.pid}`)
+  mkdirSync(root, { recursive: true })
+  const bin = join(root, 'cua-driver')
+  writeFileSync(bin, '')
+  try {
+    const recipes = listMcpRecipes({
+      runtimeDir: FDE_RUNTIME_DIR,
+      resources: tmpdir(),
+      env: { PATH: '/no-such-cua-path', HOME: tmpdir() },
+      hostCuaBins: [bin],
+    })
+    const cua = recipes.find((row) => row.id === 'cua')
+    assert.equal(cua.available, true)
+    assert.equal(cua.command, bin)
+    assert.match(cua.hint, /本机已装/)
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

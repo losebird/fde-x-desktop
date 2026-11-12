@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Sparkles } from 'lucide-react'
 import { PageTitle } from '@/components/ui'
-import { InstallDialog } from '@/components/skills/InstallDialog'
+import { InstallDialog, type SkillPreview } from '@/components/skills/InstallDialog'
 import { SkillDetail } from '@/components/skills/SkillDetail'
 import { SkillList } from '@/components/skills/SkillList'
 import {
@@ -74,6 +74,8 @@ export default function Skills() {
   const [installOpen, setInstallOpen] = useState(false)
   const [roots, setRoots] = useState<SkillRoot[]>([])
   const [source, setSource] = useState('')
+  const [fallback, setFallback] = useState('')
+  const [preview, setPreview] = useState<SkillPreview | null>(null)
   const [root, setRoot] = useState('')
   const [installError, setInstallError] = useState('')
   const [sessionId, setSessionId] = useState('')
@@ -279,6 +281,8 @@ export default function Skills() {
 
   const openInstall = () => {
     setInstallError('')
+    setPreview(null)
+    setFallback('')
     setInstallOpen(true)
     void runtimeApi.listSkillRoots(workspaceCwd()).then((data) => {
       const next = Array.isArray(data.roots) ? data.roots : []
@@ -290,9 +294,30 @@ export default function Skills() {
     })
   }
 
+  const lookupInstall = () => {
+    const query = (preview && preview.found === false ? fallback : source).trim()
+    if (!query) {
+      setInstallError(preview && preview.found === false ? '请提供安装地址或命令。' : '要填写技能名称。')
+      return
+    }
+    setBusy(true)
+    setInstallError('')
+    const abort = new AbortController()
+    const timer = window.setTimeout(() => abort.abort(), 90_000)
+    void runtimeApi.previewSkillInstall({ query, cwd: workspaceCwd() }, abort.signal).then((data) => {
+      setPreview(data)
+      if (!data.found) setInstallError('')
+    }).catch((cause) => {
+      setInstallError(classifySurfaceFailure(cause, '没有找到这个技能。').message)
+    }).finally(() => {
+      window.clearTimeout(timer)
+      setBusy(false)
+    })
+  }
+
   const saveInstall = () => {
-    if (!source.trim()) {
-      setInstallError('要填写来源。')
+    if (!preview?.found || !preview.previewId) {
+      lookupInstall()
       return
     }
     if (!root) {
@@ -303,9 +328,11 @@ export default function Skills() {
     setInstallError('')
     const abort = new AbortController()
     const timer = window.setTimeout(() => abort.abort(), 90_000)
-    void runtimeApi.installSkillBundle({ source: source.trim(), root, cwd: workspaceCwd() }, abort.signal).then(async (installed) => {
+    void runtimeApi.installSkillBundle({ previewId: preview.previewId, root, cwd: workspaceCwd() }, abort.signal).then(async (installed) => {
       setInstallOpen(false)
       setSource('')
+      setFallback('')
+      setPreview(null)
       const rows = await readUntil((items) => items.some((item) => item.path === installed.path || item.id === installed.name))
       publish(rows, '已安装。')
       setPicked(installed.name)
@@ -477,20 +504,30 @@ export default function Skills() {
       ) : null}
       <InstallDialog
         open={installOpen}
-        source={source}
+        query={source}
+        fallback={fallback}
         root={root}
         roots={roots}
         error={installError}
         busy={busy}
-        onOpenChange={setInstallOpen}
-        onSource={setSource}
-        onRoot={setRoot}
-        onPick={() => {
-          void runtimeApi.pickAiWorkspaceDirectory().then((path) => {
-            if (path) setSource(path)
-          })
+        preview={preview}
+        onOpenChange={(open) => {
+          setInstallOpen(open)
+          if (!open) {
+            setPreview(null)
+            setFallback('')
+            setInstallError('')
+          }
         }}
-        onSave={saveInstall}
+        onQuery={setSource}
+        onFallback={setFallback}
+        onRoot={setRoot}
+        onLookup={lookupInstall}
+        onConfirm={saveInstall}
+        onBack={() => {
+          setPreview(null)
+          setInstallError('')
+        }}
       />
     </div>
   )

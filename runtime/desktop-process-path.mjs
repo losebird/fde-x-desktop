@@ -1,5 +1,9 @@
 import { existsSync } from 'node:fs'
-import { delimiter as pathDelimiter, join } from 'node:path'
+import { delimiter as pathDelimiter, dirname, join, win32 as pathWin32 } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { mcpNpxBinDir } from './mcp-npx.mjs'
+
+const runtimeDir = dirname(fileURLToPath(import.meta.url))
 
 export function cuaDriverDirs(resources, platform = process.platform, arch = process.arch) {
   const root = String(resources || '')
@@ -13,16 +17,20 @@ export function cuaDriverDirs(resources, platform = process.platform, arch = pro
   return candidates.filter((dir) => existsSync(dir))
 }
 
-function wellKnownDirs(platform) {
+/** Login-shell bins a Dock/Start-menu Electron process often drops. */
+export function osDefaultPathDirs(platform = process.platform, env = process.env) {
   if (platform === 'win32') {
-    const local = process.env.LOCALAPPDATA
-    const programs = process.env.ProgramFiles
+    const systemRoot = env.SystemRoot || 'C:\\Windows'
+    const local = env.LOCALAPPDATA
+    const programs = env.ProgramFiles
     return [
-      local ? join(local, 'npm') : '',
-      programs ? join(programs, 'nodejs') : '',
+      pathWin32.join(systemRoot, 'System32'),
+      pathWin32.join(systemRoot, 'System32', 'Wbem'),
+      local ? pathWin32.join(local, 'npm') : '',
+      programs ? pathWin32.join(programs, 'nodejs') : '',
     ].filter(Boolean)
   }
-  return ['/opt/homebrew/bin', '/usr/local/bin']
+  return ['/usr/bin', '/bin', '/usr/sbin', '/sbin', '/opt/homebrew/bin', '/usr/local/bin']
 }
 
 function nodeAndDshDirs(resources, platform) {
@@ -50,10 +58,11 @@ export function desktopProcessPath({
     seen.add(text)
     dirs.push(text)
   }
+  push(mcpNpxBinDir(runtimeDir))
   for (const dir of nodeAndDshDirs(resources, platform)) push(dir)
   for (const dir of extraDirs) push(dir)
   for (const dir of cuaDriverDirs(resources, platform, arch)) push(dir)
-  for (const dir of wellKnownDirs(platform)) push(dir)
+  for (const dir of osDefaultPathDirs(platform)) push(dir)
   for (const dir of String(inheritedPath || '').split(sep)) push(dir)
   return dirs.join(sep)
 }

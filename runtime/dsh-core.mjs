@@ -22,6 +22,7 @@ import {
 import { canonicalWorkspaceCwd } from './cwd.mjs'
 import { hostChildEnv, resolveHostSpawn } from './host-spawn.mjs'
 import { isPidAlive, reclaimStrayRuntime } from './reclaim-runtime.mjs'
+import { lifecycleLog } from './lifecycle-log.mjs'
 import { BUILTIN_PLUGINS, pluginEnvKey } from './builtin-plugins.mjs'
 import { IUI_LIBRARY } from './iui-pin.mjs'
 import { readProfileManifestFile, writeMergedProfileManifest } from './profile-manifest.mjs'
@@ -35,6 +36,7 @@ import { readBridgeToolsStatus } from './bridge-tools-status.mjs'
 import { linkPackagedPeers } from './packaged-peer.mjs'
 import { ensureVendorRoot, firstMissingClosure, natsContentDigest, natsDependencyError, natsStampFields, sourceStamp, syncRepoCache } from './plugin-repo-source.mjs'
 import { sweepStaleCredentialTemps } from './dsh-credentials.mjs'
+import { SEMANTIC_AUTO_RESTART_LIMIT, shouldAutoRestartSemantic } from './engine-probe.mjs'
 
 const ANNOUNCEMENT_PATTERN = /^dsh web:\s+(\S+)/u
 
@@ -341,6 +343,7 @@ export class DshCoreConnector {
     this.pendingApprovals = new Map()
     this.eventAbort = null
     this.semanticRestarting = false
+    this.semanticAutoRestarts = 0
     this.childStopExpected = false
     this.iuiRetryPromise = null
     this.iui = { state: 'absent' }
@@ -348,11 +351,14 @@ export class DshCoreConnector {
   }
 
   kickSemanticIfExited(snapshot) {
-    if (!snapshot || snapshot.ready) return
-    const reason = String(snapshot.reason || '')
-    const detail = String(snapshot.detail || '')
-    if (reason !== 'exited' && !detail.includes('exited')) return
+    if (!snapshot || snapshot.ready) {
+      this.semanticAutoRestarts = 0
+      return
+    }
     if (this.semanticRestarting || this.state !== 'connected') return
+    if (!shouldAutoRestartSemantic(snapshot)) return
+    if (this.semanticAutoRestarts >= SEMANTIC_AUTO_RESTART_LIMIT) return
+    this.semanticAutoRestarts += 1
     this.semanticRestarting = true
     void this.semanticOs('/retry-ready', { method: 'POST', body: {} }).finally(() => {
       this.semanticRestarting = false
@@ -365,7 +371,7 @@ export class DshCoreConnector {
       || (this.state === 'connected' && !bridgeTools.ok ? (bridgeTools.error || '工作台工具未进会话') : this.lastError)
     return {
       state: this.state,
-      connected: this.state === 'connected' && Boolean(this.origin && this.cookie && this.child),
+      connected: this.state === 'connected' && Boolean(this.origin && this.cookie && this.child && isPidAlive(this.child.pid)),
       version: this.version,
       pid: this.child?.pid ?? null,
       origin: this.origin,
@@ -450,6 +456,12 @@ export class DshCoreConnector {
   }
 
   async start() {
+    if (this.child && !isPidAlive(this.child.pid)) {
+      this.child = null
+      this.origin = null
+      this.cookie = null
+      if (this.state === 'connected') this.state = 'idle'
+    }
     if (this.state === 'connected') return this.status()
     if (this.startPromise) return this.startPromise
     this.beginIuiInstall()
@@ -576,10 +588,7 @@ export class DshCoreConnector {
       detached: groupLeader,
     })
     if (exitStatusPath) hostExitPaths.set(child, exitStatusPath)
-    child.stdin?.on('error', (error) => {
-      if (error?.code === 'EPIPE' || error?.code === 'ECONNRESET' || error?.code === 'ERR_STREAM_DESTROYED') return
-      throw error
-    })
+    child.stdin?.on('error', () => {})
     this.child = child
     child.stdout?.setEncoding('utf8')
     child.stderr?.setEncoding('utf8')
@@ -644,13 +653,14 @@ export class DshCoreConnector {
   armChildFailure(child) {
     const onExit = (code, signal) => {
       const expected = this.childStopExpected || this.state === 'stopping' || this.state === 'stopped'
+      const how = describeHostExit(child, code, signal)
+      const detail = this.logs.filter(Boolean).slice(-6).join(' | ')
+      lifecycleLog(`host-exit expected=${expected} pid=${child?.pid} ${how} ${detail}`)
       this.closeStreams()
       if (this.child === child) this.child = null
       this.cookie = null
       this.origin = null
       if (!expected) {
-        const how = describeHostExit(child, code, signal)
-        const detail = this.logs.filter(Boolean).slice(-4).join(' | ')
         this.failCore(detail ? `AI 服务意外退出：${how}：${detail}` : `AI 服务意外退出：${how}`)
       } else {
         discardHostExit(child)

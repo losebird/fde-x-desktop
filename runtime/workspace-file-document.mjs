@@ -4,6 +4,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve, sep } from 'node:path'
 import { createId } from './db.mjs'
 import { fdeRunDirectory } from './config.mjs'
+import { emit } from './events.mjs'
 
 export const MAX_FILE_REVISIONS = 20
 
@@ -98,6 +99,7 @@ export async function writeWorkspaceDocument({ db, dshHome, root, relPath, bytes
   }
   await mkdir(dirname(target), { recursive: true })
   await writeFile(target, bytes)
+  emit('file.save', { path: relPath }, { workspaceCwd: cwd, source: 'files' })
   return { path: relPath, versions: listWorkspaceDocumentVersions(db, { cwd, relPath }) }
 }
 

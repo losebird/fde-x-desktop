@@ -323,6 +323,8 @@ test('a briefing allow file opens only that session and never a browser server',
   assert.equal(policy.deniedServer('playwright', 'fde-biz', mount, sessionA), 'playwright')
   assert.equal(policy.deniedServer('mail', 'standard', mount, sessionA), '')
   assert.equal(policy.deniedServer('mail', 'fde-app-builder', mount, sessionA), '')
+  writeBriefingAllow(home, sessionA, ['mail', 'QQ-Mail'])
+  assert.equal(policy.deniedServer('QQ-Mail', 'fde-briefing', mount, sessionA), '')
   rmSync(join(home, 'run', 'briefing-allow', `${sessionA}.json`))
   assert.equal(policy.deniedServer('mail', 'fde-briefing', mount, sessionA), 'mail')
 })

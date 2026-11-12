@@ -13,6 +13,7 @@ import {
   skillRootsForCwd,
   uninstallSkillBundle,
 } from '../skill-bundle.mjs'
+import { installSkillPreview, previewSkillInstall } from '../skill-preview.mjs'
 
 function cwdFrom(url, body, aiRuntime, response, correlationId, sendError) {
   const resolved = resolveHttpWorkspace({
@@ -187,14 +188,34 @@ export async function handleSkillRoutes(request, response, url, ctx) {
     return true
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/v1/skills/preview') {
+    const body = await readJson(request)
+    const query = typeof body.query === 'string' ? body.query.trim() : (typeof body.name === 'string' ? body.name.trim() : '')
+    const cwd = cwdFrom(url, body, aiRuntime, response, currentCorrelationId, sendError)
+    if (!cwd) return true
+    if (!query) {
+      sendError(response, 400, 'validation_error', '要填写技能名称。', currentCorrelationId)
+      return true
+    }
+    try {
+      await skillRootsForCwd(aiRuntime, cwd)
+      const preview = await previewSkillInstall(query)
+      sendJson(response, 200, { data: preview, correlationId: currentCorrelationId })
+    } catch (error) {
+      sendError(response, 400, error.code || 'skill_preview', error.message, currentCorrelationId)
+    }
+    return true
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/v1/skills/install') {
     const body = await readJson(request)
     const source = typeof body.source === 'string' ? body.source.trim() : ''
+    const previewId = typeof body.previewId === 'string' ? body.previewId.trim() : ''
     const root = typeof body.root === 'string' ? body.root.trim() : ''
     const cwd = cwdFrom(url, body, aiRuntime, response, currentCorrelationId, sendError)
     if (!cwd) return true
-    if (!source || !root) {
-      sendError(response, 400, 'validation_error', '需要 source 和 root', currentCorrelationId)
+    if (!root || (!source && !previewId)) {
+      sendError(response, 400, 'validation_error', '需要预览确认或来源，以及安装位置', currentCorrelationId)
       return true
     }
     try {
@@ -203,7 +224,9 @@ export async function handleSkillRoutes(request, response, url, ctx) {
         sendError(response, 403, 'bundle_not_in_roots', '安装根不在当前技能根里', currentCorrelationId)
         return true
       }
-      const installed = await installSkillBundle({ source, root })
+      const installed = previewId
+        ? await installSkillPreview(previewId, root)
+        : await installSkillBundle({ source, root })
       sendJson(response, 201, { data: installed, correlationId: currentCorrelationId })
     } catch (error) {
       sendError(response, 400, error.code || 'skill_bundle', error.message, currentCorrelationId)

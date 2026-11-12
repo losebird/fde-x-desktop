@@ -9,6 +9,7 @@ import {
   collectStrayPids,
   isPidAlive,
   isRuntimeServerCommand,
+  isSemanticSidecarCommand,
   reclaimStrayRuntime,
 } from '../reclaim-runtime.mjs'
 
@@ -28,6 +29,9 @@ describe('reclaim-runtime', () => {
     assert.equal(isRuntimeServerCommand('node runtime/tests/foo.mjs'), false)
     assert.equal(isRuntimeServerCommand('node scripts/dev.mjs'), false)
     assert.equal(isRuntimeServerCommand(''), false)
+    assert.equal(isSemanticSidecarCommand('/x/dsh-semantic-os/python/bootstrap.py'), true)
+    assert.equal(isSemanticSidecarCommand('python semantic-os/python/bootstrap.py'), true)
+    assert.equal(isSemanticSidecarCommand('node runtime/server.mjs'), false)
   })
 
   test('isPidAlive reflects current process and absent pids', () => {
@@ -118,6 +122,47 @@ describe('reclaim-runtime', () => {
     } finally {
       if (child.pid && isPidAlive(child.pid)) {
         await awaitChildExit(child, 'SIGKILL')
+      }
+    }
+  })
+
+  test('collectStrayPids reaps a detached semantic-os bootstrap argv', async () => {
+    const mid = spawn(process.execPath, ['-e', `
+      const { spawn } = require('node:child_process')
+      const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)', 'dsh-semantic-os/python/bootstrap.py'], {
+        stdio: 'ignore',
+        detached: true,
+      })
+      child.unref()
+      process.stdout.write(String(child.pid || ''))
+    `], { stdio: ['ignore', 'pipe', 'ignore'] })
+    let raw = ''
+    for await (const chunk of mid.stdout) raw += String(chunk)
+    await new Promise((resolve) => mid.once('exit', resolve))
+    const dummyPid = Number(raw.trim())
+    assert.ok(dummyPid > 1)
+    await new Promise((r) => setTimeout(r, 80))
+    try {
+      const stray = await collectStrayPids({
+        keep: [process.pid],
+        profileName: '',
+        lanPort: 0,
+        runtimePort: 0,
+        recordedPids: [],
+      })
+      assert.ok(stray.includes(dummyPid), `expected sidecar pid ${dummyPid} in ${stray.join(',')}`)
+      const killed = await reclaimStrayRuntime({
+        keep: [process.pid],
+        recordedPids: [dummyPid],
+        profileName: '',
+        lanPort: 0,
+        runtimePort: 0,
+      })
+      assert.ok(killed.includes(dummyPid))
+      assert.equal(isPidAlive(dummyPid), false)
+    } finally {
+      if (isPidAlive(dummyPid)) {
+        try { process.kill(dummyPid, 'SIGKILL') } catch { /* gone */ }
       }
     }
   })

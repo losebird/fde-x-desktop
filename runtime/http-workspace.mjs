@@ -100,6 +100,7 @@ export const httpWorkspaceRoutes = [
   { id: 'skills-bundle-file-put', file: 'runtime/routes/skills.mjs', method: 'PUT', path: '/api/v1/skills/bundle/file', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-file-delete', file: 'runtime/routes/skills.mjs', method: 'DELETE', path: '/api/v1/skills/bundle/file', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-model-invocable', file: 'runtime/routes/skills.mjs', method: 'POST', path: '/api/v1/skills/model-invocable', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
+  { id: 'skills-preview', file: 'runtime/routes/skills.mjs', method: 'POST', path: '/api/v1/skills/preview', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-install', file: 'runtime/routes/skills.mjs', method: 'POST', path: '/api/v1/skills/install', place: 'body', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'skills-bundle-delete', file: 'runtime/routes/skills.mjs', method: 'DELETE', path: '/api/v1/skills/bundle', place: 'query', param: 'cwd', proof: 'status', absent: 'runtime' },
   { id: 'business-apps', file: 'runtime/server.mjs', method: 'GET', path: '/api/v1/business/apps', place: 'query', param: 'workspaceCwd', proof: 'status', absent: 'runtime' },

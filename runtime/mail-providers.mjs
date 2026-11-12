@@ -50,6 +50,7 @@ export function mailImapErrorText(raw) {
 export function isMailMcpRow(row) {
   if (!row) return false
   if (isMailMcpServerName(row.serverName || row.server)) return true
+  if (isMailProbeEntry(row)) return true
   const tools = Array.isArray(row.tools) ? row.tools : []
   return tools.some((tool) => /imap_search|imap_/i.test(String(tool)))
 }
