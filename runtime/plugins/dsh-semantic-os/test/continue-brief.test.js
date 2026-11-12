@@ -58,6 +58,7 @@ test('continue rewrite uses last title instead of 继续处理', () => {
   }), '采购订单核验 补开票')
   assert.equal(rewriteContinueQuery('昨天下午聊了啥', { lastSession: { title: 'x' } }), '昨天下午聊了啥')
   assert.equal(rewriteContinueQuery('接着干', {}), '未完成 待办')
+  assert.equal(rewriteContinueQuery('继续处理', { lastSession: { id: 'session-abc' } }), 'session-abc')
 })
 
 test('fetchOpenTodos reads todo and doing titles from the plan API', async () => {

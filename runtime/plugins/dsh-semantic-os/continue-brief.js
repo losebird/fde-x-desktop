@@ -79,6 +79,7 @@ export function rewriteContinueQuery(speech, brief = {}) {
   const todos = Array.isArray(brief.todos) ? brief.todos.map((row) => String(row && row.title || row || '').trim()).filter(Boolean) : []
   const bits = []
   if (last && last.title) bits.push(last.title)
+  else if (last && last.id) bits.push(last.id)
   if (todos.length) bits.push(todos.slice(0, 3).join(' '))
   if (!bits.length) return '未完成 待办'
   return bits.join(' ')
