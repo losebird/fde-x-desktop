@@ -39,6 +39,15 @@ test('core brief stays under the cap', () => {
   assert.match(text, /最近一场 采购订单核验/)
   assert.match(text, /未完成 补开票；对账；发货/)
   assert.doesNotMatch(text, /多余/)
+  assert.match(text, /桥接 无（只续本工作区）/)
+  const bridged = formatCoreBrief({
+    cwd: '/ws/a',
+    lastSession: { title: '核验' },
+    todos: [],
+    peers: ['/other/proj-b', '/other/proj-c', '/other/proj-d'],
+  })
+  assert.match(bridged, /桥接 3（proj-b；proj-c…）/)
+  assert.ok(bridged.length <= CORE_BRIEF_CAP)
   assert.equal(clipBrief('abcdefghij', 8).endsWith('…'), true)
 })
 
@@ -90,6 +99,7 @@ test('installFirstTurn injects a capped continue brief and rewrites continue sea
       { id: 'sess-old', cwd: '/ws', title: '采购订单核验', updatedAt: 1, lastPromptAt: 1 },
     ],
     listTodos: async () => [{ title: '补开票' }],
+    listBridgePeers: async () => ['/other/ledger'],
   })
   const session = { id: 'sess-now', header: { cwd: '/ws', id: 'sess-now' } }
   listeners['session/event'](session, {
@@ -106,6 +116,7 @@ test('installFirstTurn injects a capped continue brief and rewrites continue sea
   assert.ok(core)
   assert.ok(core.text.length <= CORE_BRIEF_CAP)
   assert.match(core.text, /最近一场 采购订单核验/)
+  assert.match(core.text, /桥接 1（ledger）/)
   assert.deepEqual(searched, ['采购订单核验 补开票'])
   assert.match(card.text, /采购核验未完成/)
 })

@@ -41,11 +41,24 @@ export function pickLastSession(rows, input = {}) {
   return ranked[0] || null
 }
 
+export function peerLeaves(peers) {
+  const names = []
+  const seen = new Set()
+  for (const cwd of Array.isArray(peers) ? peers : []) {
+    const leaf = String(cwd || '').replace(/[\\/]+$/, '').split(/[\\/]/).pop() || String(cwd || '').trim()
+    if (!leaf || seen.has(leaf)) continue
+    seen.add(leaf)
+    names.push(leaf)
+  }
+  return names
+}
+
 export function formatCoreBrief(input = {}) {
   const cwd = String(input.cwd || '').trim()
   const leaf = cwd.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || cwd
   const last = input.lastSession && typeof input.lastSession === 'object' ? input.lastSession : null
   const todos = Array.isArray(input.todos) ? input.todos.map((row) => String(row && row.title || row || '').trim()).filter(Boolean).slice(0, 3) : []
+  const bridges = peerLeaves(input.peers)
   const lines = ['续场：']
   if (leaf) lines.push(`工作区 ${leaf}`)
   if (last && last.title) lines.push(`最近一场 ${last.title}`)
@@ -53,6 +66,8 @@ export function formatCoreBrief(input = {}) {
   else lines.push('最近一场 无')
   if (todos.length) lines.push(`未完成 ${todos.join('；')}`)
   else lines.push('未完成 0')
+  if (bridges.length) lines.push(`桥接 ${bridges.length}（${bridges.slice(0, 2).join('；')}${bridges.length > 2 ? '…' : ''}）`)
+  else lines.push('桥接 无（只续本工作区）')
   lines.push('细节用 search_text。')
   return clipBrief(lines.join('\n'))
 }

@@ -6,6 +6,7 @@
 
 import { loadSpokenSeed, speechHasConnectorLookup, speechHasSpokenRole } from '../dsh-lan-assist/live-write-intent.mjs'
 import { speechHoldsWorkstationWrite } from '../dsh-lan-assist/slots.js'
+import { listBridgePeers } from './bridge.js'
 import { fetchOpenTodos, formatCoreBrief, isContinueQuery, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
 
 export { fetchOpenTodos }
@@ -113,7 +114,15 @@ async function resolveBrief(opts, context, sessionId) {
   if (opts && typeof opts.listTodos === 'function') {
     try { todos = await opts.listTodos(cwd, context) } catch { todos = [] }
   }
-  return { cwd, lastSession, todos }
+  let peers = []
+  if (opts && typeof opts.listBridgePeers === 'function') {
+    try { peers = await opts.listBridgePeers(cwd, context) } catch { peers = [] }
+  } else if (cwd) {
+    try {
+      peers = await listBridgePeers(cwd, process.env.DSH_HOME || process.env.FDE_DSH_HOME)
+    } catch { peers = [] }
+  }
+  return { cwd, lastSession, todos, peers }
 }
 
 export function installFirstTurn(ctx, opts) {
