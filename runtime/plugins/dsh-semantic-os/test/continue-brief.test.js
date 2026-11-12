@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   CORE_BRIEF_CAP,
   clipBrief,
+  fetchOpenTodos,
   formatCoreBrief,
   isContinueQuery,
   pickLastSession,
@@ -48,6 +49,31 @@ test('continue rewrite uses last title instead of 继续处理', () => {
   }), '采购订单核验 补开票')
   assert.equal(rewriteContinueQuery('昨天下午聊了啥', { lastSession: { title: 'x' } }), '昨天下午聊了啥')
   assert.equal(rewriteContinueQuery('接着干', {}), '未完成 待办')
+})
+
+test('fetchOpenTodos reads todo and doing titles from the plan API', async () => {
+  const calls = []
+  const rows = await fetchOpenTodos('/ws/a', {
+    env: { FDE_RUNTIME_PORT: '54765', FDE_DSH_HOME: '/tmp/mem-home' },
+    readFile: async (path) => {
+      assert.match(path, /\.ui-token$/)
+      return 'tok\n'
+    },
+    fetch: async (href, init) => {
+      calls.push({ href, init })
+      return {
+        ok: true,
+        json: async () => ({ data: [
+          { title: '补开票', status: 'todo' },
+          { title: '对账', status: 'doing' },
+          { title: '已完成', status: 'done' },
+        ] }),
+      }
+    },
+  })
+  assert.equal(calls[0].href.includes('workspace=%2Fws%2Fa'), true)
+  assert.equal(calls[0].init.headers['x-fde-ui-token'], 'tok')
+  assert.deepEqual(rows.map((row) => row.title), ['补开票', '对账'])
 })
 
 test('installFirstTurn injects a capped continue brief and rewrites continue search', async () => {

@@ -608,6 +608,7 @@ function registerSemanticOsHttpTools(ctx) {
         const listed = persistence && typeof persistence.list === 'function' ? await persistence.list() : []
         return (Array.isArray(listed) ? listed : []).filter((row) => !cwd || !row.cwd || row.cwd === cwd)
       },
+      listTodos: (cwd) => firstTurn.fetchOpenTodos(cwd),
     })
     const systemPrompt = ctx.get && ctx.get('systemPrompt')
     if (systemPrompt && typeof systemPrompt.section === 'function') {

@@ -6,7 +6,9 @@
 
 import { loadSpokenSeed, speechHasConnectorLookup, speechHasSpokenRole } from '../dsh-lan-assist/live-write-intent.mjs'
 import { speechHoldsWorkstationWrite } from '../dsh-lan-assist/slots.js'
-import { formatCoreBrief, isContinueQuery, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
+import { fetchOpenTodos, formatCoreBrief, isContinueQuery, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
+
+export { fetchOpenTodos }
 
 const SEARCH_INTENTS = new Set(['查询', '出处', '催待办'])
 const CARD_CAP = 1600

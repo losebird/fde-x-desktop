@@ -78,6 +78,45 @@ export function sessionTitleOf(row) {
   return String(row.title || header.title || values.title || '').trim()
 }
 
+const OPEN_TASK = new Set(['todo', 'doing'])
+
+export async function fetchOpenTodos(cwd, io = {}) {
+  const path = String(cwd || '').trim()
+  if (!path) return []
+  const env = io.env || process.env
+  const port = String(env.FDE_RUNTIME_PORT || '4318')
+  const home = env.FDE_DSH_HOME || env.DSH_HOME || ''
+  const read = io.readFile || (await import('node:fs/promises')).readFile
+  let token = ''
+  if (home) {
+    try { token = String(await read(joinPath(home, '.ui-token'), 'utf8')).trim() } catch { token = '' }
+  }
+  const href = `http://127.0.0.1:${port}/api/v1/plan/tasks?workspace=${encodeURIComponent(path)}`
+  const get = io.fetch || globalThis.fetch
+  if (typeof get !== 'function') return []
+  try {
+    const res = await get(href, {
+      headers: token ? { 'x-fde-ui-token': token } : {},
+      signal: io.signal || AbortSignal.timeout(1500),
+    })
+    if (!res || !res.ok) return []
+    const body = await res.json()
+    const rows = Array.isArray(body?.data) ? body.data : Array.isArray(body) ? body : []
+    return rows
+      .filter((row) => row && OPEN_TASK.has(String(row.status || '')))
+      .map((row) => ({ title: String(row.title || '').trim() }))
+      .filter((row) => row.title)
+      .slice(0, 8)
+  } catch {
+    return []
+  }
+}
+
+function joinPath(home, name) {
+  const sep = String(home).includes('\\') ? '\\' : '/'
+  return `${String(home).replace(/[\\/]+$/, '')}${sep}${name}`
+}
+
 export function sessionPresetOf(row) {
   if (!row || typeof row !== 'object') return ''
   const header = row.header && typeof row.header === 'object' ? row.header : {}

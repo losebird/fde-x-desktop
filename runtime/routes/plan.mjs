@@ -5,7 +5,7 @@ import { httpStatusForWorkspaceError } from '../http-workspace.mjs'
 import { requestAppWorkspace } from './apps.mjs'
 import { verifyUiToken } from './bridge.mjs'
 import { emit } from '../events.mjs'
-import { workspaceCwdForId } from '../briefing/workspace.mjs'
+import { workspaceCwdForId, workspaceRowForCwd } from '../briefing/workspace.mjs'
 import { collectBag, mutateBag } from '../catalog-collect.mjs'
 import {
   ORIGIN_FDE_TASK,
@@ -261,6 +261,16 @@ function requireWorkspaceId(workspaceId, response, correlationId) {
   return workspaceId.trim()
 }
 
+function resolvePlanWorkspaceId(db, url, response, correlationId) {
+  const byId = String(url.searchParams.get('workspaceId') || '').trim()
+  if (byId) return requireWorkspaceId(byId, response, correlationId)
+  const cwd = String(url.searchParams.get('workspace') || url.searchParams.get('workspaceCwd') || '').trim()
+  const row = cwd ? workspaceRowForCwd(db, cwd) : null
+  if (row && row.id) return row.id
+  planError(response, 400, 'missing_workspace_id', '缺少 workspaceId', correlationId)
+  return null
+}
+
 function workspaceCwdForEmit(db, workspaceId) {
   return workspaceCwdForId(db, workspaceId)
 }
@@ -380,7 +390,7 @@ export async function handlePlanRequest(request, response, url, { db, enqueueEve
   }
 
   if (method === 'GET' && url.pathname === '/api/v1/plan/tasks') {
-    const workspaceId = requireWorkspaceId(url.searchParams.get('workspaceId'), response, correlationId)
+    const workspaceId = resolvePlanWorkspaceId(db, url, response, correlationId)
     if (!workspaceId) return true
     const status = url.searchParams.get('status')
     const q = url.searchParams.get('q')

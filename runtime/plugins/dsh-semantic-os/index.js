@@ -196,6 +196,7 @@ export function apply(ctx, config) {
         const listed = persistence && typeof persistence.list === 'function' ? await persistence.list() : []
         return (Array.isArray(listed) ? listed : []).filter((row) => !cwd || !row.cwd || row.cwd === cwd)
       },
+      listTodos: (cwd) => import('./continue-brief.js').then((mod) => mod.fetchOpenTodos(cwd)),
     })
   } catch {
     // First-turn hook must not take down apply().
