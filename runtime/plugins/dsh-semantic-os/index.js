@@ -195,9 +195,18 @@ export function apply(ctx, config) {
       ),
       listSessions: async (cwd) => {
         const listed = persistence && typeof persistence.list === 'function' ? await persistence.list() : []
-        return (Array.isArray(listed) ? listed : []).filter((row) => !cwd || !row.cwd || row.cwd === cwd)
+        let live = []
+        try {
+          const sessions = ctx.get && ctx.get('sessions')
+          live = sessions && typeof sessions.list === 'function' ? sessions.list() : []
+        } catch {
+          live = []
+        }
+        const { fillSessionTitles, mergeSessionLists } = await import('./continue-brief.js')
+        return fillSessionTitles(mergeSessionLists(listed, live, cwd))
       },
       listTodos: (cwd) => import('./continue-brief.js').then((mod) => mod.fetchOpenTodos(cwd)),
+      listFiledRules: (cwd, extra) => import('./continue-brief.js').then((mod) => mod.fetchFiledRules(cwd, extra)),
     })
     installSessionDistill(ctx)
   } catch {

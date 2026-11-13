@@ -7,9 +7,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from kind import unfold_escapes
+
 
 def _text(value: Any) -> str:
-    return " ".join(str(value or "").strip().split())
+    return " ".join(unfold_escapes(value).strip().split())
 
 
 def resolve_reference(args: dict[str, Any] | None) -> dict[str, Any]:

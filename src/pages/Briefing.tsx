@@ -46,6 +46,12 @@ function sectionById(sections: BriefingSectionResult[], id: string) {
   return sections.find((s) => s.id === id)
 }
 
+function briefingInFlight(snap: BriefingSnapshot | null | undefined) {
+  if (!snap) return false
+  if (snap.status === 'running') return true
+  return (snap.sections || []).some((section) => Boolean(section?.pendingAgent))
+}
+
 function sectionMarkClass(type?: string) {
   if (type === 'im') return 'text-accent-blue'
   if (type === 'memory' || type === 'ai') return 'text-brand'
@@ -153,6 +159,27 @@ export default function Briefing() {
   useEvents(['briefing.ready'], () => {
     refresh(false)
   })
+
+  const pendingDigest = briefingInFlight(briefing)
+  useEffect(() => {
+    if (!pendingDigest) return
+    let cancelled = false
+    const started = Date.now()
+    const tick = () => {
+      if (cancelled || Date.now() - started > 210_000) return
+      void runtimeApi.getLatestBriefing(false).then((data) => {
+        if (cancelled) return
+        setDefinition(data.definition)
+        setBriefing(data.briefing)
+      }).catch(() => undefined)
+    }
+    const timer = window.setInterval(tick, 1500)
+    tick()
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [pendingDigest, briefing?.id])
 
   const enabledDefs = useMemo(
     () => (definition?.sections || []).filter((s) => s.enabled),

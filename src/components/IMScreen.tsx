@@ -16,6 +16,7 @@ import { CommandPalette } from './CommandPalette'
 import { FloatingPanel } from './FloatingPanel'
 import { IMMiniHeader } from './IMMiniHeader'
 import { StagePanel } from './StagePanel'
+import { WorkstationTourGate } from '@/components/settings/WorkstationTour'
 
 const ROUTE_PANEL: Record<string, string> = {
   im: 'im',
@@ -168,6 +169,7 @@ export function IMScreen() {
       </div>
       <CommandPalette />
       <FloatingPanel />
+      <WorkstationTourGate />
       <Outlet />
     </div>
   )

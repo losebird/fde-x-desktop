@@ -3,12 +3,31 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { adaptSessionPersistence, createSessionIngest, eventTime, headerCwd, headerId, mayLook, SESSION_STAMP_BUDGET } from '../session-ingest.js'
+import { adaptSessionPersistence, createSessionIngest, eventText, eventTime, headerCwd, headerId, mayLook, SESSION_STAMP_BUDGET } from '../session-ingest.js'
 
 test('mayLook treats see_file as a 点头', () => {
   assert.equal(mayLook({ type: 'user/message', data: { content: '请看发票' } }), false)
   assert.equal(mayLook({ type: 'tool/call', data: { name: 'see_file', path: '/tmp/a.pdf' } }), true)
   assert.equal(mayLook({ type: 'assistant/message', data: { name: 'search_text' } }), false)
+})
+
+test('eventText skips reasoning, json dumps, and system inject', () => {
+  assert.equal(eventText({
+    type: 'user/message',
+    data: { content: 'Current runtime context. skip', source: { kind: 'user' } },
+  }), '')
+  assert.equal(eventText({
+    type: 'user/message',
+    data: { content: '{"ok":true}', source: { kind: 'user' } },
+  }), '')
+  assert.equal(eventText({
+    type: 'assistant/message',
+    data: { message: { content: [{ type: 'reasoning', text: 'think' }, { type: 'text', text: '目录已对齐' }] } },
+  }), '目录已对齐')
+  assert.equal(eventText({
+    type: 'user/message',
+    data: { content: '继续处理', source: { kind: 'user' } },
+  }), '继续处理')
 })
 
 test('eventTime reads DSH event.time milliseconds', () => {
@@ -65,7 +84,30 @@ test('adaptSessionPersistence flattens DSH list snapshots', async () => {
       return { read: async () => ({ events: [] }), close: async () => {} }
     },
   })
-  assert.deepEqual(await adapted.list(), [{ id: 's1', cwd: '/ws/new', createdAt: 9, updatedAt: 9 }])
+  assert.deepEqual(await adapted.list(), [{ id: 's1', cwd: '/ws/new', createdAt: 9, updatedAt: 9, lastPromptAt: 9 }])
+})
+
+test('adaptSessionPersistence copies a projection title onto the list row', async () => {
+  const adapted = adaptSessionPersistence({
+    async list() {
+      return [{
+        header: { id: 's2', cwd: '/ws/new', createdAt: 4 },
+        projections: { values: { title: { val: '昨天未完成的事' } } },
+        revision: 'r1',
+      }]
+    },
+    async open() {
+      return { read: async () => ({ events: [] }), close: async () => {} }
+    },
+  })
+  assert.deepEqual(await adapted.list(), [{
+    id: 's2',
+    cwd: '/ws/new',
+    title: '昨天未完成的事',
+    createdAt: 4,
+    updatedAt: 4,
+    lastPromptAt: 4,
+  }])
 })
 
 test('session ingest reads DSH sessionPersistence snapshots via open/read', async () => {
@@ -162,6 +204,7 @@ test('session ingest reads from committed cursor on the next tick', async () => 
       assert.ok(upserts.length >= 1)
       const texts = upserts.flatMap((row) => (row.args && row.args.texts) || [])
       assert.ok(texts.some((row) => String(row.path || '').startsWith('session:')))
+      assert.ok(texts.every((row) => !String(row.path || '').startsWith('session:') || row.ingest_source === 'session_ingest'))
       assert.equal(enqueued.length, 0)
       assert.ok(calls.some((row) => row.op === 'index_passages'))
     } finally {
@@ -534,5 +577,30 @@ test('a successful stamp is not repeated on the next tick', async () => {
     } finally {
       server.close()
     }
+  })
+})
+
+test('tick releases running when readFrom hangs', async () => {
+  await withHome(async () => {
+    const ingest = createSessionIngest({
+      sidecar: { snapshot: () => ({ ready: true, port: 1 }), request: async () => ({ ok: true }) },
+      getPersistence: () => ({
+        async list() { return [{ id: 's1', cwd: process.cwd() }] },
+        async readFrom() { return new Promise(() => {}) },
+      }),
+      getEyes: () => null,
+      getExtract: () => null,
+      extractQueue: { enqueue: () => undefined },
+      getConfig: () => ({}),
+      sessionStepMs: 50,
+      tickDeadlineMs: 200,
+    })
+    const t0 = Date.now()
+    const result = await ingest.tick()
+    assert.ok(Date.now() - t0 < 2000)
+    assert.equal(ingest.snapshot().running, false)
+    assert.ok(result.skipped >= 1)
+    assert.match(String(result.error), /SESSION_TIMEOUT/)
+    assert.equal(ingest.kick().started, true)
   })
 })

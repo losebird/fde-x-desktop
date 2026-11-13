@@ -94,9 +94,15 @@ export async function handleProduct(req, res, url, opts) {
     const result = kick.call(sessionIngest)
     if (result && typeof result.then === 'function') {
       const waited = await result
-      return json(res, waited && waited.ok === false && waited.error === 'NO_PERSISTENCE' ? 503 : 200, { ok: true, ...waited })
+      const packed = waited && typeof waited === 'object' ? waited : {}
+      return json(res, packed.ok === false && packed.error === 'NO_PERSISTENCE' ? 503 : 200, {
+        ...packed,
+        ok: packed.error === 'NO_PERSISTENCE' ? false : true,
+        started: packed.started !== false,
+      })
     }
-    return json(res, 200, { ok: true, started: true, ...result })
+    const packed = result && typeof result === 'object' ? result : {}
+    return json(res, 200, { ...packed, ok: true, started: packed.started !== false })
   }
 
   if (pathname === `${PREFIX}/usage` && req.method === 'GET') {

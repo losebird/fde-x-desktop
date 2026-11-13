@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import clsx from 'clsx'
 import { Activity, Bell, Bot, Brain, Database, Keyboard, Palette, User, type LucideIcon } from 'lucide-react'
 import { PageTitle } from '@/components/ui'
-import { kitControl } from '@/components/surface/classes'
 import { SurfaceNav } from '@/components/surface/NavList'
 import { AccountSection } from '@/components/settings/sections/Account'
 import { AppearanceSection } from '@/components/settings/sections/Appearance'
@@ -64,29 +64,18 @@ export default function Settings() {
 
   return (
     <div ref={frame}>
-      <PageTitle title="设置" subtitle="账户、外观、通知、快捷键、AI 核心、语义记忆、运行环境、存储与数据" />
-      <div className={wide ? 'grid grid-cols-[200px_minmax(0,1fr)] items-start gap-6' : 'grid items-start gap-6'}>
-        {wide ? (
-          <div className="rounded-kit-lg border border-kit-line bg-kit-card p-2 shadow-kit">
-            <SurfaceNav value={section} onChange={pickSection} items={SECTIONS} />
-          </div>
-        ) : (
-          <label className="block">
-            <span className="sr-only">分类</span>
-            <select
-              aria-label="分类"
-              className={`${kitControl} h-8`}
-              value={section}
-              onChange={(event) => pickSection(event.target.value)}
-            >
-              {SECTIONS.map((item) => (
-                <option key={item.id} value={item.id}>{item.label}</option>
-              ))}
-            </select>
-          </label>
-        )}
-        <div className="min-w-0">
-          <h2 className="mb-3 text-kit-title font-medium text-kit-ink">{current.label}</h2>
+      <PageTitle title="设置" subtitle="本机工作台的账户、外观和核心。" />
+      <div className={wide ? 'grid grid-cols-[184px_minmax(0,1fr)] items-start gap-6' : 'grid items-start gap-4'}>
+        <div className={wide ? 'sticky top-0' : undefined}>
+          <SurfaceNav
+            value={section}
+            onChange={pickSection}
+            items={SECTIONS}
+            layout={wide ? 'stack' : 'wrap'}
+          />
+        </div>
+        <div className={clsx('min-w-0', !wide && 'border-t border-kit-line pt-4')}>
+          <h2 className="mb-4 text-[15px] font-semibold tracking-tight text-kit-ink">{current.label}</h2>
           <StatusErrorBoundary key={section}>
             {section === 'account' && <AccountSection />}
             {section === 'appearance' && <AppearanceSection />}

@@ -556,6 +556,16 @@ function validFromDay(row: Record<string, unknown>) {
   return String(then?.valid_from || row.valid_from || '').slice(0, 10)
 }
 
+function cardArchiveCue(row: Record<string, unknown>, fallback: string) {
+  return String(row.cue || row.label || row.content || fallback).trim()
+}
+
+function cardArchiveBody(row: Record<string, unknown>, cue: string) {
+  const body = String(row.body || row.content || '').trim()
+  if (!body || body === cue) return ''
+  return body
+}
+
 function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
   const cardId = useApp((s) => s.memoryBrowse.cardId || '')
   const originId = useApp((s) => s.memoryBrowse.originId || '')
@@ -648,10 +658,13 @@ function CardsArchive({ cwd, onBack }: { cwd: string; onBack: () => void }) {
         const id = String(row.id || '')
         const status = String(row.status || '起草')
         const origin = originOfCard(row)
+        const cue = cardArchiveCue(row, id)
+        const body = cardArchiveBody(row, cue)
         return (
           <div key={id} className={`text-xs border rounded p-2 mb-2 break-words min-w-0 ${id === cardId ? 'border-brand' : 'border-line'}`}>
             <div className="text-ink-subtle mb-1">{status}{origin ? ` · ${origin}` : ''}</div>
-            <div>{String(row.cue || row.label || row.content || id)}</div>
+            <div>{cue}</div>
+            {body ? <pre className="mt-2 whitespace-pre-wrap">{body}</pre> : null}
             <div className="mt-2 flex flex-wrap gap-2">
               {status === '起草' && (
                 <button type="button" className="btn h-7 px-2" onClick={() => {
@@ -1129,6 +1142,9 @@ function healthOpLabel(op: string) {
     link: '连边',
     merge: '合并',
     extract: '抽取',
+    correct: '起草纠正',
+    index: '起草索引',
+    link_group: '连边本组',
     renew: '续期',
     mute: '静音',
   }
@@ -1188,6 +1204,8 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
             onClick={() => act({
               op,
               id: target,
+              key: action.key || row.key,
+              members: action.members || row.members,
               other: action.other || row.other,
               type: action.type || row.type,
               source: action.source || row.origin || row.source,
@@ -1201,7 +1219,7 @@ function HealthPanel({ cwd, ready, onRetry }: { cwd: string; ready: Record<strin
   return (
     <div className="space-y-3 text-sm min-w-0">
       <div>引擎 {ready?.ready ? '就绪' : '未就绪'}{cwd ? ` · ${cwd.split('/').filter(Boolean).at(-1)}` : ''}</div>
-      <p className="text-xs text-ink-muted">按类看缺出处、重复、过期的记忆，不是装依赖的体检表。</p>
+      <p className="text-xs text-ink-muted">按类看缺出处、重复、过期、和出处不符、案卷索引与连边。校对和索引只起草；连边本组只写印证或增补。</p>
       {!ready?.ready && <button type="button" className="btn" onClick={onRetry}>再拉起引擎</button>}
       {err && <div className="text-xs text-accent-red">{err}</div>}
       {groups.length === 0 && !err && <div className="text-xs text-ink-muted">这一类没有待办。</div>}

@@ -28,7 +28,7 @@ const TOOLS = [
   },
   {
     name: 'record_decision',
-    description: 'Record a Semantica board after the user has chosen. Assist in chat first; call this only when they confirm. Omit status to record as 已生效. because / leads_to / receipt_id are optional causal fields. Auto extract stays 起草. tenant_cwd must match this workspace. Workspace decision rules block this write with RULE_CONFLICT; they do not block talking.',
+    description: 'Record a Semantica board after the user has chosen. Assist in chat first; call this only when they confirm. When they have confirmed, call this in the same turn; do not biz_preview or upsert_workspace_vocab first. Omit status to record as 已生效. because / leads_to / receipt_id are optional causal fields. Auto extract stays 起草. Prefer omit tenant_cwd (session cwd is used); if you pass it, use the real path characters, never \\uXXXX escapes. Workspace decision rules block this write with RULE_CONFLICT; they do not block talking. kind/ticket/system are optional 业务引用 extras. Missing 词表 fields (MISSING_FIELD) skip the 业务引用 and still record the board; they do not block 已生效. Do not upsert 词表 to fill those fields. add_entity still requires those fields.',
     parameters: {
       category: { type: 'string', required: true, description: 'Decision category, e.g. loan_approval' },
       scenario: { type: 'string', required: true, description: 'Natural-language situation description' },
@@ -40,7 +40,7 @@ const TOOLS = [
       leads_to: { type: 'array', items: { type: 'string' }, description: 'Consequence node ids. This decision gets a leads_to edge into each.' },
       status: { type: 'string', description: '起草 / 已生效 / 已冲正 / 作废. Default 已生效 (Semantica: recorded is live). Auto extract stays 起草.' },
       receipt_id: { type: 'string', description: 'Optional business receipt id.' },
-      tenant_cwd: { type: 'string', description: 'Workspace this envelope belongs to. Must match the session cwd.' },
+      tenant_cwd: { type: 'string', description: 'Optional. Prefer omit. If set, must match the session cwd as real characters, not \\uXXXX escapes.' },
       nod_kind: { type: 'string', description: '会签同意 / 本机工具 / 业务过账. Optional. Any of these can record 已生效.' },
       trace_id: { type: 'string', description: 'Envelope / followup / receipt line. Same id cannot record 已生效 twice.' },
       system: { type: 'string', description: 'Business system for a 业务引用, e.g. 采购.' },
@@ -178,7 +178,7 @@ const TOOLS = [
   },
   {
     name: 'add_entity',
-    description: 'Add a node/entity to the Semantica knowledge graph (Python add_node). For events/orders pass valid_from as the real event time, not ingest time.',
+    description: 'Add a node/entity to the Semantica knowledge graph (Python add_node). For events/orders pass valid_from as the real event time, not ingest time. Missing 词表 fields (MISSING_FIELD) still block this write; they do not block record_decision. Do not use this to patch a 型.',
     parameters: {
       id: { type: 'string', required: true, description: 'Unique node ID' },
       label: { type: 'string', description: 'Human-readable label' },

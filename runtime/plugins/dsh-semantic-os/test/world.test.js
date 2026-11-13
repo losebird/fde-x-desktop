@@ -22,7 +22,7 @@ import json, sys
 sys.path.insert(0, "python")
 from world import stamp_hit
 rows = {
-  "session": stamp_hit({"node": {"id": "session:s1:1", "type": "Document", "content": "延期", "properties": {"valid_from": "2026-08-12"}}, "score": 120}),
+  "session": stamp_hit({"node": {"id": "session:s1:1", "type": "Document", "content": "延期", "properties": {"valid_from": "2026-08-12", "ingest_source": "session_ingest"}}, "score": 120}),
   "memory": stamp_hit({"node": {"id": "memory:ab12", "type": "记忆卡片", "content": "华东客户", "properties": {}}, "via": "agent-memory", "score": 150}),
   "inferred": stamp_hit({"node": {"id": "person:1", "type": "Person", "content": "张三", "properties": {"auto": True}}, "score": 80}),
   "receipt": stamp_hit({"node": {"id": "dec-1", "type": "decision", "content": "延期", "properties": {"status": "已生效", "receipt_id": "R1", "nod_kind": "业务过账"}}, "score": 160}),

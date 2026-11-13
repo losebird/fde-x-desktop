@@ -19,7 +19,7 @@ function openRuntime() {
 
 export function HostNsPanel({
   home,
-  title,
+  title: _title,
   hint,
 }: {
   home: SettingsNsHome
@@ -36,16 +36,15 @@ export function HostNsPanel({
   return (
     <>
     {iui ? (
-      <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
+      <section className="overflow-hidden rounded-kit-lg border border-kit-line bg-kit-card p-4">
         <Suspense fallback={<div className="h-9 rounded-kit bg-kit-muted" aria-busy="true" aria-label="正在读取" />}>
           <IuiHostSection entry={iui} writable={writable} onReload={load} />
         </Suspense>
       </section>
     ) : null}
     {showHost ? (
-    <section className="rounded-kit-lg border border-kit-line bg-kit-card p-4 shadow-kit">
-      <h3 className="text-kit-title font-medium text-kit-ink">{title}</h3>
-      <p className="mb-3 mt-1 text-kit-sm leading-5 text-kit-secondary">{hint}</p>
+    <section className="min-w-0">
+      <p className="mb-3 max-w-prose text-kit-sm leading-5 text-kit-secondary">{hint}</p>
       {note ? <div className="mb-3"><SurfaceBanner tone="danger">{note}</SurfaceBanner></div> : null}
       {phase === 'loading' && rows.length === 0 ? (
         <div className="space-y-2" aria-busy="true" aria-label="正在读取">

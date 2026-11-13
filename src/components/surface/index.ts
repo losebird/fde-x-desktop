@@ -3,6 +3,7 @@ export { SurfaceButton } from '@/components/surface/Button'
 export { SurfaceDialog } from '@/components/surface/Dialog'
 export { SurfaceEmpty, SurfaceGuide } from '@/components/surface/EmptyState'
 export { SurfaceField, SurfaceInput, SurfaceSelect, SurfaceTextarea } from '@/components/surface/Field'
+export { SurfaceGroup, SurfaceGroupRow } from '@/components/surface/Group'
 export { SurfaceNav } from '@/components/surface/NavList'
 export {
   SURFACE_CORE_DOWN,

@@ -143,6 +143,22 @@ test('formatHandoff stays a small tool receipt', () => {
   assert.ok(card.length < 1600)
 })
 
+test('formatHandoff lists filed rules without drafts', () => {
+  const card = formatHandoff({
+    intent: '查询',
+    tool: 'search_text',
+    sessionId: 's1',
+    filedRules: [
+      { id: 'memory:ok', label: '发票型无数量列' },
+      { id: 'memory:skip', label: '' },
+    ],
+    hits: [],
+  })
+  assert.match(card, /已入档规则（待审不是依据）/)
+  assert.match(card, /memory:ok 发票型无数量列/)
+  assert.equal(card.includes('memory:skip'), false)
+})
+
 test('cache flips once and skips search on 闲聊', async () => {
   let n = 0
   const cache = createFirstTurnCache()
@@ -179,6 +195,38 @@ test('ensure waits for in-flight search instead of returning empty', async () =>
   assert.match(a, /Host 已代调/)
   assert.match(b, /Host 已代调/)
   assert.match(b, /session:x:1/)
+})
+
+test('fde-briefing assemble skips continue and first-turn cards', async () => {
+  const searched = []
+  const listeners = {}
+  installFirstTurn({
+    on(name, fn) { listeners[name] = fn },
+  }, {
+    search: async (text) => {
+      searched.push(text)
+      return { results: [{ node: { id: 'session:old:1', content: '采购核验未完成' } }] }
+    },
+    listSessions: async () => [
+      { id: 'sess-old', cwd: '/ws', title: '采购订单核验', updatedAt: 1, lastPromptAt: 1 },
+    ],
+    listTodos: async () => [{ title: '补开票' }],
+    listFiledRules: async () => [{ id: 'memory:ok', label: '发票型无数量列' }],
+  })
+  const session = { id: 'brief-now', header: { cwd: '/ws', id: 'brief-now', agentPreset: 'fde-briefing' } }
+  listeners['session/event'](session, {
+    type: 'user/message',
+    data: { source: { kind: 'user' }, content: [{ type: 'text', text: '生成早报。唯一交稿方式是调用 fde_briefing_submit' }] },
+  })
+  const assembled = await listeners['system-prompt/assemble'](
+    { sections: [{ name: 'keep', order: 1, text: 'ok' }] },
+    { agent: { session, agentPreset: 'fde-briefing' } },
+    async () => ({ sections: [{ name: 'keep', order: 1, text: 'ok' }] }),
+  )
+  assert.equal(assembled.sections.some((row) => row.name === 'tool:dsh-semantic-os-continue'), false)
+  assert.equal(assembled.sections.some((row) => row.name === 'tool:dsh-semantic-os-first-turn'), false)
+  assert.equal(assembled.sections[0].name, 'keep')
+  assert.deepEqual(searched, [])
 })
 
 test('BFF Host path installs first-turn and keeps session persistence for search', () => {

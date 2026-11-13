@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { SurfaceGroup } from '@/components/surface/Group'
 import { SurfaceSwitch } from '@/components/surface/Switch'
 import { requestOsNotifyPermission } from '@/lib/task-notify'
 import { runtimeApi } from '@/lib/runtime-api'
@@ -42,8 +43,7 @@ export function NotificationsSection() {
   }, [taskDueSoonNotify, mcpDownNotify])
 
   return (
-    <section className="rounded-kit-lg border border-kit-line bg-kit-card px-4 py-2 shadow-kit">
-      <h3 className="pt-2 text-kit-title font-medium text-kit-ink">通知偏好</h3>
+    <SurfaceGroup title="通知偏好">
       <SurfaceSwitch
         label="早间 IM 静音模式"
         hint="工作日 07:00 到 10:00 自动静音"
@@ -85,6 +85,6 @@ export function NotificationsSection() {
         checked={muteBlocksIm}
         onCheckedChange={setMuteBlocksIm}
       />
-    </section>
+    </SurfaceGroup>
   )
 }

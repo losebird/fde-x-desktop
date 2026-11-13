@@ -44,5 +44,10 @@ export function hostChildEnv(extra = {}, env = process.env) {
     inheritedPath: merged.PATH || env.PATH || '',
     extraDirs: cuaDriverDirs(resources),
   })
+  if (!Object.prototype.hasOwnProperty.call(extra, 'DSH_AGENTS_HOME')) {
+    const dshHome = String(merged.DSH_HOME || merged.FDE_DSH_HOME || '').trim()
+    if (dshHome) merged.DSH_AGENTS_HOME = join(dshHome, 'agents')
+    else delete merged.DSH_AGENTS_HOME
+  }
   return merged
 }

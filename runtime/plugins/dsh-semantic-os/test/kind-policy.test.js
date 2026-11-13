@@ -92,6 +92,45 @@ print(json.dumps({
   assert.equal(got.bank.ok, true)
 })
 
+test('unicode-escaped 采购单 still needs 状态', () => {
+  const out = py(`
+import json, sys
+sys.path.insert(0, "python")
+from kind import check_shape
+vocab = [{"kind": "采购单", "fields": ["单号", "状态"]}]
+print(json.dumps(check_shape({
+  "kind": "\\\\u91c7\\\\u8d2d\\\\u5355",
+  "ticket": "PO-20261112",
+  "system": "\\\\u91c7\\\\u8d2d",
+  "environment": "\\\\u6d4b\\\\u8bd5",
+}, vocab), ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.ok, false)
+  assert.equal(got.error, 'MISSING_FIELD')
+  assert.equal(got.field, '状态')
+  assert.equal(got.kind, '采购单')
+})
+
+test('a 采购单 with 单号 still needs 状态', () => {
+  const out = py(`
+import json, sys
+sys.path.insert(0, "python")
+from kind import check_shape
+vocab = [{"kind": "采购单", "fields": ["单号", "状态"]}]
+print(json.dumps(check_shape({
+  "kind": "采购单",
+  "ticket": "PO-20261112",
+  "system": "采购",
+  "environment": "测试",
+}, vocab), ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.ok, false)
+  assert.equal(got.error, 'MISSING_FIELD')
+  assert.equal(got.field, '状态')
+})
+
 test('a 采购单 without 单号 is rejected by the 型', () => {
   const out = py(`
 import json, sys
@@ -268,4 +307,11 @@ test('add_entity on a skos:Concept patches instead of replacing', async () => {
   assert.match(src, /status": "patched"/)
   assert.match(src, /merge_kind_props/)
   assert.match(src, /"patched": patched/)
+})
+
+test('sidecar add_entity MISSING_FIELD still blocks', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const src = await readFile(new URL('../python/bootstrap.py', import.meta.url), 'utf8')
+  const rec = (src.split('elif op == "add_entity":')[1] || '').split('elif op ==')[0] || ''
+  assert.match(rec, /return \{"error": shaped.get\("error"\)/)
 })

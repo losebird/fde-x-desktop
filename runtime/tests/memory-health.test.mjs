@@ -15,6 +15,7 @@ import {
   healthItemKey,
   healthWritePlan,
   liveDuplicateBag,
+  mergeProofreadGroup,
   itemHasOrigin,
   mergeHealthGroups,
   reshapeUnsoursedGroup,
@@ -159,6 +160,24 @@ test('write plan requires nod and rejects biz source', () => {
   assert.equal(group.python, 'retire_memory_card')
   assert.equal(group.pythonEach, undefined)
   assert.deepEqual(group.args.ids, ['memory:c'])
+  const correct = healthWritePlan({ op: 'correct', id: 'memory:a', nodded: true })
+  assert.equal(correct.fde, 'dream_correct')
+  assert.equal(correct.args.id, 'memory:a')
+  assert.equal(healthWritePlan({ op: 'correct', id: 'memory:a' }).error, 'nodded')
+})
+
+test('mergeProofreadGroup appends 与出处不符 and respects mute', () => {
+  const sheet = { groups: [{ kind: '无出处', items: [] }], muted: [] }
+  const merged = mergeProofreadGroup(sheet, [{
+    id: 'memory:a',
+    kind: '与出处不符',
+    label: '卡写未读到，出处在改口径（格式/单号）',
+    actions: [{ op: 'open', id: 'memory:a' }, { op: 'correct', id: 'memory:a' }],
+  }])
+  assert.equal(merged.groups.at(-1).kind, '与出处不符')
+  assert.equal(merged.groups.at(-1).count, 1)
+  const muted = mergeProofreadGroup({ ...sheet, muted: ['与出处不符'] }, merged.groups.at(-1).items)
+  assert.equal(muted.groups.some((row) => row.kind === '与出处不符'), false)
 })
 
 test('retire-only group offers retire_group and mute', () => {

@@ -52,7 +52,8 @@ function worldGrade(nid, ntype, via, props) {
   const kind = String(ntype || '')
   const path = String(via || '')
   if (id.startsWith('memory:') || kind === '记忆卡片' || path === 'agent-memory') return 'user_memory'
-  if (meta.auto === true || String(meta.source || '') === 'session_ingest') return 'inferred'
+  if (id.startsWith('session:') || String(meta.ingest_source || '') === 'session_ingest') return 'observation'
+  if (meta.auto === true) return 'inferred'
   if (kind.toLowerCase() === 'decision') {
     const status = String(meta.status || meta.board_status || '')
     const receipt = String(meta.receipt_id || meta.receiptId || meta.receipt || '')

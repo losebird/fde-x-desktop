@@ -54,18 +54,20 @@ export async function attachCuesOnCards(cards, loadOriginDoc) {
   const list = Array.isArray(cards) ? cards.filter((row) => row && typeof row === 'object') : []
   const load = typeof loadOriginDoc === 'function' ? loadOriginDoc : null
   return Promise.all(list.map(async (card) => {
+    const stored = String(card.body || card.content || card.label || '').trim()
+    const listed = displayLabel(stored)
     const origin = originForCue(card)
     if (origin && load) {
       try {
         const doc = await load(origin)
         const fromOrigin = cueFromOriginDoc(doc)
-        if (fromOrigin) return { ...card, cue: fromOrigin }
+        if (fromOrigin) return { ...card, body: stored, cue: fromOrigin, label: fromOrigin }
       } catch {
         /* keep stored label */
       }
     }
-    const cue = cardCue(card)
-    return { ...card, cue }
+    const cue = String(card.cue || '').trim() || listed
+    return { ...card, body: stored, cue, label: cue }
   }))
 }
 
@@ -316,17 +318,19 @@ export function draftMemoryCardInsert(label, cause, extra = {}) {
   const origin = instanceOriginOf(extra.origin)
   const id = cueIdOf(origin, body, causeValue)
   const source = hostSourceOf(origin)
+  const cue = displayLabel(body)
   return {
     op: 'add_node',
     args: {
       id,
       type: '记忆卡片',
-      label: displayLabel(body),
+      label: body,
       metadata: {
         status: '起草',
         kind: '记忆卡片',
         cause: causeValue,
         auto: extra.auto === true,
+        cue,
         ...(origin ? { origin } : {}),
         ...(source ? { source } : {}),
         ...(extra.sessionId ? { sessionId: String(extra.sessionId) } : {}),

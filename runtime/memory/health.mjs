@@ -2,12 +2,15 @@
 
 import { cardIsRetired, collapseCueCards, namedCardIds } from './cards.mjs'
 import { attachCardOrigin } from './draft.mjs'
+import { DOSSIER_KIND, DOSSIER_LINK_KIND, dossierGroup } from './dossier-index.mjs'
+import { PROOFREAD_KIND, proofreadGroup } from './dream-proofread.mjs'
 import { hostSourceOf, originOfCard } from './identity.mjs'
 import { originKindOf } from './origin-entity.mjs'
 
 export const HEALTH_PAGE = 80
 export const HOST_UNSOURCED_KIND = '无出处'
 export const HOST_DUP_KIND = '重复'
+export { PROOFREAD_KIND, DOSSIER_KIND, DOSSIER_LINK_KIND }
 
 const LINK_EDGE = 'confirms'
 
@@ -255,6 +258,42 @@ export function buildHealthSheet({
   }
 }
 
+export function mergeProofreadGroup(sheet, issues) {
+  const host = sheet && typeof sheet === 'object' ? sheet : {}
+  const groups = Array.isArray(host.groups) ? [...host.groups] : []
+  const muted = new Set(Array.isArray(host.muted) ? host.muted.map(String) : [])
+  if (muted.has(PROOFREAD_KIND)) return host
+  const group = proofreadGroup(issues)
+  if (!group.count) return host
+  const next = groups.filter((row) => String(row && row.kind || '') !== PROOFREAD_KIND)
+  next.push(group)
+  return { ...host, groups: next }
+}
+
+export function mergeDossierGroup(sheet, issues) {
+  const host = sheet && typeof sheet === 'object' ? sheet : {}
+  const groups = Array.isArray(host.groups) ? [...host.groups] : []
+  const muted = new Set(Array.isArray(host.muted) ? host.muted.map(String) : [])
+  if (muted.has(DOSSIER_KIND)) return host
+  const group = dossierGroup(issues)
+  if (!group.count) return host
+  const next = groups.filter((row) => String(row && row.kind || '') !== DOSSIER_KIND)
+  next.push(group)
+  return { ...host, groups: next }
+}
+
+export function mergeDossierLinkGroup(sheet, issues) {
+  const host = sheet && typeof sheet === 'object' ? sheet : {}
+  const groups = Array.isArray(host.groups) ? [...host.groups] : []
+  const muted = new Set(Array.isArray(host.muted) ? host.muted.map(String) : [])
+  if (muted.has(DOSSIER_LINK_KIND)) return host
+  const group = dossierGroup(issues, DOSSIER_LINK_KIND)
+  if (!group.count) return host
+  const next = groups.filter((row) => String(row && row.kind || '') !== DOSSIER_LINK_KIND)
+  next.push(group)
+  return { ...host, groups: next }
+}
+
 export function mergeHealthGroups(prev, next) {
   const prior = asItems(prev)
   const incoming = asItems(next)
@@ -310,6 +349,21 @@ export function healthWritePlan(body) {
   if (op === 'extract') {
     if (!id) return { error: 'NO_PATH' }
     return { path: '/extract-session', body: { id, nodded: true } }
+  }
+  if (op === 'correct') {
+    if (!id) return { error: 'NO_PATH' }
+    return { fde: 'dream_correct', args: { id } }
+  }
+  if (op === 'index') {
+    const key = String(row.key || id || '').trim()
+    if (!key) return { error: 'NO_PATH' }
+    return { fde: 'dream_index', args: { key } }
+  }
+  if (op === 'link_group') {
+    const source = id
+    const members = Array.isArray(row.members) ? row.members.map(String).filter(Boolean) : []
+    if (!source || !members.length) return { error: 'NO_PATH' }
+    return { fde: 'dream_link_group', args: { source, members, key: String(row.key || '').trim() } }
   }
   if (op === 'merge') {
     const other = String(row.other || '').trim()

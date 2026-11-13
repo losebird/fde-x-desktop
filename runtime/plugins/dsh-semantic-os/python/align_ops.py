@@ -62,6 +62,15 @@ def run_update_node(cwd: str, args: dict[str, Any] | None = None) -> dict[str, A
             merged[key] = value
         if key == "content" and value is not None:
             merged["content"] = value
+    if str(inner.get("status") or merged.get("status") or "").strip():
+        meta = dict(merged.get("metadata") or {})
+        meta["status"] = str(inner.get("status") or merged.get("status") or "").strip()
+        merged["metadata"] = meta
+    extra_meta = args.get("metadata")
+    if isinstance(extra_meta, dict):
+        meta = dict(merged.get("metadata") or {})
+        meta.update({str(k): v for k, v in extra_meta.items()})
+        merged["metadata"] = meta
     graph_store.put_node(cwd, merged)
     got = graph_store.read_one(cwd, nid) or merged
     return {"ok": True, "id": nid, "status": "updated", "node": graph_store.row_of(got), "properties": _props(got)}
@@ -82,6 +91,19 @@ def run_delete_node(cwd: str, args: dict[str, Any] | None = None) -> dict[str, A
     merged["status"] = "archived"
     graph_store.put_node(cwd, merged)
     got = graph_store.read_one(cwd, nid) or merged
+    try:
+        from stores import read_primary, schedule_rebuild_vectors
+
+        mem, _st = read_primary(cwd)
+        if mem is not None:
+            try:
+                from bootstrap import _slim_workbench
+                _slim_workbench(mem)
+            except Exception:
+                pass
+            schedule_rebuild_vectors(cwd, mem)
+    except Exception:
+        pass
     return {
         "ok": True,
         "id": nid,

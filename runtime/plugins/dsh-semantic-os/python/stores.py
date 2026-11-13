@@ -243,11 +243,34 @@ def vector_dir(cwd: str) -> Path:
     return Path(os.path.realpath(cwd)) / ".dsh" / "semantic-os" / "vectors"
 
 
+def _node_status(node: Any) -> str:
+    if isinstance(node, dict):
+        props = node.get("properties") if isinstance(node.get("properties"), dict) else {}
+        return str(node.get("status") or props.get("status") or "").strip()
+    props = getattr(node, "properties", None)
+    props = props if isinstance(props, dict) else {}
+    return str(getattr(node, "status", "") or props.get("status") or "").strip()
+
+
 def _collect_vector_texts(graph: Any) -> tuple[list[str], list[str]]:
     ids: list[str] = []
     texts: list[str] = []
     for nid, node in _iter_nodes(graph):
         if not nid:
+            continue
+        if isinstance(node, dict):
+            ntype = str(node.get("type") or node.get("node_type") or "")
+        else:
+            ntype = str(getattr(node, "node_type", None) or getattr(node, "type", "") or "")
+        status = _node_status(node)
+        try:
+            from bootstrap import keep_workbench_node
+            if not keep_workbench_node(str(nid), ntype, status):
+                continue
+        except Exception:
+            if is_archive_node(str(nid), ntype):
+                continue
+        if status.lower() in {"archived", "作废"}:
             continue
         if isinstance(node, dict):
             content = str(node.get("content") or (node.get("properties") or {}).get("content") or "")
@@ -310,12 +333,15 @@ def _open_doc_vs(cwd: str):
     return vs
 
 
-def _save_doc_vs(cwd: str, vs: Any, ids: list[str], digest: str) -> None:
+def _save_doc_vs(cwd: str, vs: Any, ids: list[str], digest: str, hashes: dict[str, str] | None = None) -> None:
     dest = vector_dir(cwd)
     dest.mkdir(parents=True, exist_ok=True)
     vs.save(str(dest))
+    packed = {"fp": digest, "count": len(ids), "algo": VECTOR_ALGO, "ids": ids}
+    if hashes is not None:
+        packed["hashes"] = hashes
     (dest / "meta.json").write_text(
-        json.dumps({"fp": digest, "count": len(ids), "algo": VECTOR_ALGO, "ids": ids}, ensure_ascii=False),
+        json.dumps(packed, ensure_ascii=False),
         encoding="utf-8",
     )
     _remember_vectors(cwd, vs)
@@ -326,18 +352,15 @@ def rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
     return _rebuild_from_texts(cwd, ids, texts)
 
 
-def _rebuild_from_texts(cwd: str, ids: list[str], texts: list[str]) -> dict[str, Any]:
-    st = vector_status()
-    if not st.get("ok"):
-        return st
-    if not texts:
-        return {**st, "count": 0, "algo": VECTOR_ALGO}
-    dest = vector_dir(cwd)
-    digest = _vector_fingerprint(ids, texts)
-    meta = _read_vector_meta(dest)
-    if _vector_ready(dest, meta) and str(meta.get("fp") or "") == digest:
-        return {**st, "count": len(ids), "skipped": True, "algo": VECTOR_ALGO}
-    vs = make_vector_store()
+def _text_hash(text: str) -> str:
+    return hashlib.sha1(str(text or "").encode("utf-8", "ignore")).hexdigest()
+
+
+def _hash_map(ids: list[str], texts: list[str]) -> dict[str, str]:
+    return {str(nid): _text_hash(text) for nid, text in zip(ids, texts)}
+
+
+def _add_vector_docs(vs: Any, ids: list[str], texts: list[str]) -> None:
     for start in range(0, len(texts), 256):
         batch_ids = ids[start:start + 256]
         batch_texts = texts[start:start + 256]
@@ -345,9 +368,72 @@ def _rebuild_from_texts(cwd: str, ids: list[str], texts: list[str]) -> dict[str,
             batch_texts,
             metadata=[{"node_id": nid, "kind": "node"} for nid in batch_ids],
             parallel=False,
+            ids=batch_ids,
         )
-    _save_doc_vs(cwd, vs, ids, digest)
-    return {**st, "count": len(ids), "skipped": False, "algo": VECTOR_ALGO}
+
+
+def _rebuild_from_texts(cwd: str, ids: list[str], texts: list[str]) -> dict[str, Any]:
+    st = vector_status()
+    if not st.get("ok"):
+        return st
+    if not texts:
+        return {**st, "count": 0, "algo": VECTOR_ALGO, "mode": "empty"}
+    dest = vector_dir(cwd)
+    digest = _vector_fingerprint(ids, texts)
+    meta = _read_vector_meta(dest)
+    hashes = _hash_map(ids, texts)
+    if _vector_ready(dest, meta) and str(meta.get("fp") or "") == digest:
+        if not isinstance(meta.get("hashes"), dict):
+            _save_doc_vs(cwd, _open_doc_vs(cwd), ids, digest, hashes=hashes)
+        return {**st, "count": len(ids), "skipped": True, "algo": VECTOR_ALGO, "mode": "skip"}
+    vs = make_vector_store()
+    _add_vector_docs(vs, ids, texts)
+    _save_doc_vs(cwd, vs, ids, digest, hashes=hashes)
+    return {**st, "count": len(ids), "skipped": False, "algo": VECTOR_ALGO, "mode": "full"}
+
+
+def _sync_vectors(cwd: str, ids: list[str], texts: list[str]) -> dict[str, Any]:
+    st = vector_status()
+    if not st.get("ok"):
+        return st
+    dest = vector_dir(cwd)
+    digest = _vector_fingerprint(ids, texts)
+    meta = _read_vector_meta(dest)
+    hashes = _hash_map(ids, texts)
+    old_hashes = meta.get("hashes") if isinstance(meta.get("hashes"), dict) else {}
+    if _vector_ready(dest, meta) and str(meta.get("fp") or "") == digest:
+        if not old_hashes:
+            _save_doc_vs(cwd, _open_doc_vs(cwd), ids, digest, hashes=hashes)
+        return {**st, "count": len(ids), "skipped": True, "algo": VECTOR_ALGO, "mode": "skip"}
+    if not _vector_ready(dest, meta) or not old_hashes:
+        return _rebuild_from_texts(cwd, ids, texts)
+    current = {str(nid): text for nid, text in zip(ids, texts)}
+    old_ids = {str(nid) for nid in old_hashes}
+    new_ids = set(current)
+    removed = sorted(old_ids - new_ids)
+    changed = sorted(nid for nid in new_ids & old_ids if str(old_hashes.get(nid) or "") != hashes.get(nid))
+    added = sorted(new_ids - old_ids)
+    vs = _open_doc_vs(cwd)
+    drop = removed + changed
+    if drop:
+        try:
+            vs.delete_vectors(drop)
+        except Exception:
+            return _rebuild_from_texts(cwd, ids, texts)
+    upsert_ids = changed + added
+    if upsert_ids:
+        _add_vector_docs(vs, upsert_ids, [current[nid] for nid in upsert_ids])
+    _save_doc_vs(cwd, vs, ids, digest, hashes=hashes)
+    return {
+        **st,
+        "count": len(ids),
+        "skipped": False,
+        "algo": VECTOR_ALGO,
+        "mode": "delta",
+        "added": len(added),
+        "changed": len(changed),
+        "removed": len(removed),
+    }
 
 
 def _vector_root(cwd: str) -> str:
@@ -375,7 +461,7 @@ def _vector_worker(root: str) -> None:
                 _VECTOR_RUNNING.discard(root)
                 return
         try:
-            _rebuild_from_texts(root, job[0], job[1])
+            _sync_vectors(root, job[0], job[1])
             with _VECTOR_LOCK:
                 _VECTOR_ERROR.pop(root, None)
         except Exception as exc:

@@ -607,9 +607,17 @@ function registerSemanticOsHttpTools(ctx) {
       ),
       listSessions: async (cwd) => {
         const listed = persistence && typeof persistence.list === 'function' ? await persistence.list() : []
-        return (Array.isArray(listed) ? listed : []).filter((row) => !cwd || !row.cwd || row.cwd === cwd)
+        let live = []
+        try {
+          const sessions = ctx.get && ctx.get('sessions')
+          live = sessions && typeof sessions.list === 'function' ? sessions.list() : []
+        } catch {
+          live = []
+        }
+        return firstTurn.fillSessionTitles(firstTurn.mergeSessionLists(listed, live, cwd))
       },
       listTodos: (cwd) => firstTurn.fetchOpenTodos(cwd),
+      listFiledRules: (cwd, extra) => firstTurn.fetchFiledRules(cwd, extra),
     })
     distill.installSessionDistill(ctx)
     const systemPrompt = ctx.get && ctx.get('systemPrompt')

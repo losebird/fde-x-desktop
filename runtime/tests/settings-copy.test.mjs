@@ -4,7 +4,7 @@ import test from 'node:test'
 import { settingsFieldTitle, settingsNsTitle, settingsOptionLabel } from '../settings-copy.mjs'
 
 test('ns titles use Chinese display names', () => {
-  assert.equal(settingsNsTitle('ui-settings-account', 'ui-settings-account'), '账户向导')
+  assert.equal(settingsNsTitle('ui-settings-account', 'ui-settings-account'), '核心问卷')
   assert.equal(settingsNsTitle('ui-theme', 'ui-theme'), '界面主题')
   assert.equal(settingsNsTitle('locale', 'locale'), '语言')
   assert.equal(settingsNsTitle('iui', 'iui'), 'IUI 交互')
@@ -24,6 +24,11 @@ test('field titles prefer Host Chinese then dictionary', () => {
 })
 
 test('option labels stay as values when unknown', () => {
+  assert.equal(settingsFieldTitle('ui-settings-account', 'purpose', ''), '主要用来干什么')
+  assert.equal(settingsFieldTitle('ui-settings-account', 'process', ''), '助手怎么配合')
+  assert.equal(settingsOptionLabel('office'), '业务办公')
+  assert.equal(settingsOptionLabel('development'), '工程开发')
+  assert.equal(settingsOptionLabel('standard'), '先对齐再做')
   assert.equal(settingsOptionLabel('welcome'), '欢迎')
   assert.equal(settingsOptionLabel('system'), '跟随系统')
   assert.equal(settingsOptionLabel('auto'), '自动')

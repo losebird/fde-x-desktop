@@ -81,7 +81,9 @@ def knowledge_grade(nid: str, ntype: str, via: str, props: dict[str, Any] | None
     path = _text(via)
     if ident.startswith("memory:") or kind == "记忆卡片" or path == "agent-memory":
         return "user_memory"
-    if meta.get("auto") is True or _text(meta.get("source")) == "session_ingest":
+    if ident.startswith("session:") or _text(meta.get("ingest_source")) == "session_ingest":
+        return "observation"
+    if meta.get("auto") is True:
         return "inferred"
     if kind.lower() == "decision":
         status = _text(meta.get("status") or meta.get("board_status"))

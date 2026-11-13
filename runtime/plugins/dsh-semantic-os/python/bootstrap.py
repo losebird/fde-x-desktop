@@ -599,7 +599,7 @@ def run_list_memory_cards(cwd: str, args: dict[str, Any] | None = None) -> dict[
             continue
         props = packed["properties"]
         current = memory_still_counts(packed)
-        source = str(props.get("source") or props.get("path") or "")
+        source = str(props.get("source") or props.get("path") or props.get("origin") or "")
         then_props = props
         own = then_label(props)
         if own.get("undated") and source.startswith(("session:", "file:")):
@@ -3178,6 +3178,9 @@ def run_upsert_documents(cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             continue
         nid = document_id(src_path)
         extra = {"source": src_path, "path": src_path}
+        ingest_source = str(row.get("ingest_source") or "").strip()
+        if ingest_source:
+            extra["ingest_source"] = ingest_source
         if row.get("role"):
             extra["role"] = row.get("role")
         if row.get("messageId"):
@@ -8307,31 +8310,41 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         if board.get("trace_id") or trace:
             metadata["trace_id"] = board.get("trace_id") or trace
         ref = None
+        shape_warning = None
         if should_shape(args):
-            shaped = check_shape(args, vocab_shapes(cwd))
+            shape_args = dict(args)
+            board_status = str(shape_args.get("status") or "").strip()
+            if board_status in {"起草", "已生效", "已冲正", "作废"}:
+                shape_args.pop("status", None)
+            shaped = check_shape(shape_args, vocab_shapes(cwd))
             if not shaped.get("ok"):
-                return {"error": shaped.get("error") or "MISSING_FIELD", "field": shaped.get("field"), "kind": shaped.get("kind")}
-            ref = resolve_reference(args)
-            if ref.get("error"):
-                return {"error": ref["error"]}
-            if get_node(graph, ref["id"]) is None:
-                graph.add_node(ref["id"], "业务引用", content=ref["ticket"], **{
-                    "system": ref["system"],
-                    "environment": ref["environment"],
-                    "kind": ref["kind"],
-                    "ticket": ref["ticket"],
-                })
-            because = _id_list(args.get("because") or args.get("evidence") or args.get("supports"))
-            if ref["id"] not in because:
-                args = dict(args)
-                args["because"] = because + [ref["id"]]
-            holder = str(args.get("holder") or args.get("person") or args.get("decision_maker") or "").strip()
-            if holder:
-                held = hold_reference({"person": holder, "reference_id": ref["id"]})
-                if not held.get("error"):
-                    if get_node(graph, holder) is None:
-                        graph.add_node(holder, "Person", content=holder)
-                    ensure_edge(graph, held["source"], held["target"], "holds")
+                shape_warning = {
+                    "error": shaped.get("error") or "MISSING_FIELD",
+                    "field": shaped.get("field"),
+                    "kind": shaped.get("kind"),
+                }
+            else:
+                ref = resolve_reference(args)
+                if ref.get("error"):
+                    return {"error": ref["error"]}
+                if get_node(graph, ref["id"]) is None:
+                    graph.add_node(ref["id"], "业务引用", content=ref["ticket"], **{
+                        "system": ref["system"],
+                        "environment": ref["environment"],
+                        "kind": ref["kind"],
+                        "ticket": ref["ticket"],
+                    })
+                because = _id_list(args.get("because") or args.get("evidence") or args.get("supports"))
+                if ref["id"] not in because:
+                    args = dict(args)
+                    args["because"] = because + [ref["id"]]
+                holder = str(args.get("holder") or args.get("person") or args.get("decision_maker") or "").strip()
+                if holder:
+                    held = hold_reference({"person": holder, "reference_id": ref["id"]})
+                    if not held.get("error"):
+                        if get_node(graph, holder) is None:
+                            graph.add_node(holder, "Person", content=holder)
+                        ensure_edge(graph, held["source"], held["target"], "holds")
         because_ids = _id_list(args.get("because") or args.get("evidence") or args.get("supports"))
         session_raw = str(args.get("session_id") or args.get("sessionId") or "").strip()
         if session_raw:
@@ -8433,6 +8446,8 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
             "board_status": metadata["status"],
             "causal": causal,
         }
+        if shape_warning:
+            result["shape_warning"] = shape_warning
         if board.get("nod_kind"):
             result["nod_kind"] = board["nod_kind"]
         if metadata.get("trace_id"):

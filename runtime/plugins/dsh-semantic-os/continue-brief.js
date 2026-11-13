@@ -17,28 +17,97 @@ export function clipBrief(text, cap = CORE_BRIEF_CAP) {
   return `${raw.slice(0, Math.max(0, cap - 1)).trim()}…`
 }
 
+export function projectionVal(node) {
+  if (node == null) return ''
+  if (typeof node === 'string' || typeof node === 'number') return String(node).trim()
+  if (typeof node === 'object' && node.val != null) return String(node.val || '').trim()
+  return ''
+}
+
+export function listedSessionRow(row) {
+  if (!row || typeof row !== 'object') return null
+  const header = row.header && typeof row.header === 'object' ? row.header : {}
+  const id = String(row.id || row.sessionId || header.id || header.sessionId || '').trim()
+  if (!id) return null
+  const cwd = String(row.cwd || header.cwd || '').trim()
+  const title = sessionTitleOf(row)
+  const preset = sessionPresetOf(row)
+  const lastPromptAt = Number(row.lastPromptAt || header.lastPromptAt || 0)
+  const updatedAt = Number(row.updatedAt || header.updatedAt || lastPromptAt || row.createdAt || header.createdAt || 0)
+  return { id, cwd, title, agentPreset: preset, lastPromptAt, updatedAt }
+}
+
+export function mergeSessionLists(persisted, live, cwd) {
+  const want = String(cwd || '').trim()
+  const byId = new Map()
+  for (const raw of [...(Array.isArray(persisted) ? persisted : []), ...(Array.isArray(live) ? live : [])]) {
+    const row = listedSessionRow(raw)
+    if (!row) continue
+    if (want && row.cwd && row.cwd !== want) continue
+    const prev = byId.get(row.id)
+    if (!prev) {
+      byId.set(row.id, row)
+      continue
+    }
+    byId.set(row.id, {
+      id: row.id,
+      cwd: prev.cwd || row.cwd,
+      title: prev.title || row.title,
+      agentPreset: prev.agentPreset || row.agentPreset,
+      lastPromptAt: Math.max(Number(prev.lastPromptAt) || 0, Number(row.lastPromptAt) || 0),
+      updatedAt: Math.max(Number(prev.updatedAt) || 0, Number(row.updatedAt) || 0),
+    })
+  }
+  return [...byId.values()]
+}
+
+const PROBE_TITLE = /INGESTOBS|SCANFILE|AUTOFILE-?(LOW|HIGH)?|BRIDGEPROBE|ARCHIVEFULL|回扫升格探针|Work on INGESTOBS/i
+
+export function isProbeSessionTitle(title) {
+  return PROBE_TITLE.test(String(title || ''))
+}
+
+export function titleRelatedToTodo(title, todo) {
+  const a = String(title || '').trim()
+  const b = String(todo || '').trim()
+  if (!a || !b) return false
+  const keysA = a.match(/PO-?\d{6,}/gi) || []
+  const keysB = b.match(/PO-?\d{6,}/gi) || []
+  const norm = (key) => String(key || '').replace(/-/g, '').toUpperCase()
+  if (keysA.some((key) => keysB.some((other) => norm(key) === norm(other)))) return true
+  if (a.includes(b) || b.includes(a)) return true
+  const head = b.replace(/[：:].*$/u, '').slice(0, 8)
+  return head.length >= 4 && a.includes(head)
+}
+
 export function pickLastSession(rows, input = {}) {
   const cwd = String(input.cwd || '').trim()
   const currentId = String(input.currentId || '').trim()
+  const todos = Array.isArray(input.todos)
+    ? input.todos.map((row) => String(row && row.title || row || '').trim()).filter(Boolean)
+    : []
   const list = Array.isArray(rows) ? rows : []
   const ranked = list
     .map((row) => {
-      if (!row || typeof row !== 'object') return null
-      const id = String(row.id || row.sessionId || '').trim()
-      if (!id || id === currentId) return null
-      const preset = String(row.agentPreset || row.preset || '').trim()
-      if (preset === 'fde-briefing') return null
-      const rowCwd = String(row.cwd || '').trim()
-      if (cwd && rowCwd && rowCwd !== cwd) return null
-      const title = String(row.title || '').trim()
-      const lastPromptAt = Number(row.lastPromptAt || 0)
-      if (!title && !lastPromptAt) return null
-      const updatedAt = Number(row.updatedAt || lastPromptAt || 0)
-      return { id, title, updatedAt, lastPromptAt }
+      const flat = listedSessionRow(row)
+      if (!flat) return null
+      if (flat.id === currentId) return null
+      if (flat.agentPreset === 'fde-briefing') return null
+      if (cwd && flat.cwd && flat.cwd !== cwd) return null
+      if (!flat.title && !flat.updatedAt && !flat.lastPromptAt) return null
+      return {
+        id: flat.id,
+        title: flat.title,
+        updatedAt: flat.updatedAt || flat.lastPromptAt,
+        lastPromptAt: flat.lastPromptAt || flat.updatedAt,
+      }
     })
     .filter(Boolean)
     .sort((a, b) => b.updatedAt - a.updatedAt)
-  return ranked[0] || null
+  const work = ranked.filter((row) => !isProbeSessionTitle(row.title))
+  const pool = work.length ? work : ranked
+  const hit = pool.find((row) => todos.some((todo) => titleRelatedToTodo(row.title, todo)))
+  return hit || pool[0] || null
 }
 
 export function peerLeaves(peers) {
@@ -91,7 +160,36 @@ export function sessionTitleOf(row) {
   const values = row.projections && row.projections.values && typeof row.projections.values === 'object'
     ? row.projections.values
     : {}
-  return String(row.title || header.title || values.title || '').trim()
+  const headerValues = header.projections && header.projections.values && typeof header.projections.values === 'object'
+    ? header.projections.values
+    : {}
+  const recordRows = row.record && row.record.rows && typeof row.record.rows === 'object'
+    ? row.record.rows
+    : {}
+  return projectionVal(row.title)
+    || projectionVal(row.displayTitle)
+    || projectionVal(header.title)
+    || projectionVal(values.title)
+    || projectionVal(headerValues.title)
+    || projectionVal(recordRows.title)
+}
+
+export async function fillSessionTitles(rows, io = {}) {
+  const list = Array.isArray(rows) ? rows : []
+  const home = String((io.env || process.env).DSH_HOME || '').trim()
+  if (!home) return list
+  const read = io.readFile || (await import('node:fs/promises')).readFile
+  await Promise.all(list.map(async (row) => {
+    if (!row || row.title) return
+    const id = String(row.id || '').trim()
+    if (!id) return
+    try {
+      const raw = await read(`${home.replace(/[\\/]+$/, '')}/storages/session_projcache/sessions/${id}.json`, 'utf8')
+      const title = sessionTitleOf(JSON.parse(String(raw || '')))
+      if (title) row.title = title
+    } catch { /* optional cache */ }
+  }))
+  return list
 }
 
 const OPEN_TASK = new Set(['todo', 'doing'])
@@ -128,6 +226,77 @@ export async function fetchOpenTodos(cwd, io = {}) {
   }
 }
 
+export const FILED_RULE_CAP = 3
+
+export function pickFiledRules(cards, cap = FILED_RULE_CAP) {
+  const opts = cap && typeof cap === 'object' ? cap : { cap }
+  const limit = Number.isFinite(Number(opts.cap)) && Number(opts.cap) > 0
+    ? Math.min(Number(opts.cap), 8)
+    : FILED_RULE_CAP
+  const todos = Array.isArray(opts.todos)
+    ? opts.todos.map((row) => String(row && row.title || row || '').trim()).filter(Boolean)
+    : []
+  const needles = [String(opts.lastTitle || '').trim(), ...todos].filter(Boolean)
+  const scored = []
+  let index = 0
+  for (const card of Array.isArray(cards) ? cards : []) {
+    if (!card || typeof card !== 'object') continue
+    const status = String(card.status || '')
+    if (status && status !== '已入档') continue
+    if (card.current === false) continue
+    const id = String(card.id || '').trim()
+    const raw = String(card.body || card.content || card.label || '').trim()
+    if (!id || !raw) continue
+    const lines = raw.split('\n').map((row) => String(row || '').trim()).filter(Boolean)
+    const ruleLine = lines.find((row) => row.startsWith('规则：')) || lines[0] || ''
+    const cue = ruleLine.replace(/^规则：/, '').trim() || ruleLine
+    if (!cue) continue
+    let score = 0
+    if (isProbeSessionTitle(cue) || isProbeSessionTitle(raw)) score -= 100
+    if (needles.some((needle) => titleRelatedToTodo(cue, needle) || titleRelatedToTodo(raw, needle))) score += 50
+    if (/案卷/.test(cue)) score += 15
+    if (/未放行|不过账|未读到/.test(cue) || /未放行|不过账|未读到/.test(raw)) score += 10
+    scored.push({
+      id,
+      label: cue.length <= 80 ? cue : `${cue.slice(0, 79).trim()}…`,
+      score,
+      index,
+    })
+    index += 1
+  }
+  scored.sort((a, b) => b.score - a.score || a.index - b.index)
+  return scored.slice(0, limit).map((row) => ({ id: row.id, label: row.label }))
+}
+
+export async function fetchFiledRules(cwd, io = {}) {
+  const path = String(cwd || '').trim()
+  if (!path) return []
+  const env = io.env || process.env
+  const port = String(env.FDE_RUNTIME_PORT || '4318')
+  const home = env.FDE_DSH_HOME || env.DSH_HOME || ''
+  const read = io.readFile || (await import('node:fs/promises')).readFile
+  let token = ''
+  if (home) {
+    try { token = String(await read(joinPath(home, '.ui-token'), 'utf8')).trim() } catch { token = '' }
+  }
+  const href = `http://127.0.0.1:${port}/api/v1/memory/cards?cwd=${encodeURIComponent(path)}&include_filed=true`
+  const get = io.fetch || globalThis.fetch
+  if (typeof get !== 'function') return []
+  try {
+    const res = await get(href, {
+      headers: token ? { 'x-fde-ui-token': token } : {},
+      signal: io.signal || AbortSignal.timeout(1500),
+    })
+    if (!res || !res.ok) return []
+    const body = await res.json()
+    const payload = body && typeof body === 'object' && body.data && typeof body.data === 'object' ? body.data : body
+    const rows = Array.isArray(payload?.cards) ? payload.cards : Array.isArray(payload) ? payload : []
+    return pickFiledRules(rows, io)
+  } catch {
+    return []
+  }
+}
+
 function joinPath(home, name) {
   const sep = String(home).includes('\\') ? '\\' : '/'
   return `${String(home).replace(/[\\/]+$/, '')}${sep}${name}`
@@ -139,5 +308,8 @@ export function sessionPresetOf(row) {
   const values = row.projections && row.projections.values && typeof row.projections.values === 'object'
     ? row.projections.values
     : {}
-  return String(row.agentPreset || header.agentPreset || values.agentPreset || '').trim()
+  return projectionVal(row.agentPreset)
+    || projectionVal(row.preset)
+    || projectionVal(header.agentPreset)
+    || projectionVal(values.agentPreset)
 }

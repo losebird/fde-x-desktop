@@ -1,7 +1,7 @@
 import './support/no-stray-processes.mjs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { asDraftCard, attachCuesOnGroups, cardCue, cardFromOpenedNode, collapseCueCards, cueFromOriginDoc, cueIdOf, draftMemoryCardInsert, loadNamedCards, namedCardIds, nodeMayCite } from '../memory/cards.mjs'
+import { asDraftCard, attachCuesOnCards, attachCuesOnGroups, cardCue, cardFromOpenedNode, collapseCueCards, cueFromOriginDoc, cueIdOf, draftMemoryCardInsert, loadNamedCards, namedCardIds, nodeMayCite } from '../memory/cards.mjs'
 import { attachCardOrigin } from '../memory/draft.mjs'
 import { instanceOriginOf } from '../memory/identity.mjs'
 
@@ -15,7 +15,21 @@ test('insert op is add_node with 起草 metadata', () => {
   assert.equal(insert.args.metadata.auto, false)
   assert.match(insert.args.id, /^memory:[a-f0-9]{16}$/u)
   assert.equal(insert.args.id, cueIdOf('', '12345678\n应用动作只起草卡片', 'choice'))
+  assert.equal(insert.args.label, '12345678\n应用动作只起草卡片')
+  assert.equal(insert.args.metadata.cue, '12345678')
   assert.ok(insert.args.label.length >= 8)
+})
+
+test('insert stores full body and lists the first-line cue', async () => {
+  const full = '规则：单号无连字符\n怎么知道：session:s1\n陷阱：无\n未证实：先记下缺口'
+  const insert = draftMemoryCardInsert(full, 'correction', { origin: 'session:s1' })
+  assert.equal(insert.args.label, full)
+  assert.equal(insert.args.metadata.cue, '规则：单号无连字符')
+  assert.match(insert.args.label, /怎么知道：session:s1/)
+  const faced = await attachCuesOnCards([{ id: insert.args.id, label: insert.args.label, status: '起草' }])
+  assert.equal(faced[0].cue, '规则：单号无连字符')
+  assert.equal(faced[0].label, '规则：单号无连字符')
+  assert.match(faced[0].body, /未证实：先记下缺口/)
 })
 
 test('same cue reuses id', () => {

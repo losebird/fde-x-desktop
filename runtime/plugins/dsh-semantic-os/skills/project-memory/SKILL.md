@@ -19,7 +19,7 @@ Use this skill before recording a board, writing a 记忆卡片, or upserting vo
 ## Board
 
 - When the user is choosing, call `find_precedents` first, then `brief_for_decision`, show options, then wait.
-- After they confirm, `record_decision`. `because` is optional (supports edges when ids exist). Never put scenario text in because. `check_decision_rules` first if the workspace has rules; `RULE_CONFLICT` means do not write. Empty rules allow. Rules never block talking.
+- After they confirm, `record_decision` in this turn. Do not `biz_preview` or `upsert_workspace_vocab` first. `because` is optional (supports edges when ids exist). Never put scenario text in because. `check_decision_rules` first if the workspace has rules; `RULE_CONFLICT` means do not write. Empty rules allow. Rules never block talking. kind/ticket/system are optional 业务引用 extras. Missing 词表 fields skip the 业务引用 and still record the board; they do not block 已生效. Do not upsert 词表 to fill those fields. Prefer omit `tenant_cwd`; never pass `\\uXXXX` path escapes. `add_entity` still requires 词表 fields.
 - Omit status to record as 已生效 (Semantica: recorded is live). Auto extract stays 起草. Same `trace_id` or `receipt_id` cannot record 已生效 twice.
 - `query_decisions` and `find_precedents` recall recorded boards. Auto 起草 / 作废 / 已冲正 are omitted from precedents. `get_causal_chain` walks supports/CAUSED/PRECEDENT_FOR from a decision_id. `analyze_decision_impact` lists boards this one CAUSED. Empty graph returns [].
 
@@ -32,7 +32,7 @@ Use this skill before recording a board, writing a 记忆卡片, or upserting vo
 ## Vocabulary
 
 - Hand-written 型 only. Write with `upsert_workspace_vocab` (max 16 concepts per call).
-- Do not use `add_entity` to patch a 型. Do not add ERP 行, ticket numbers, or amounts as vocab concepts.
+- Do not use `add_entity` to patch a 型. Do not add ERP 行, ticket numbers, or amounts as vocab concepts. Missing 词表 fields still block `add_entity`.
 - Do not POST `/semantic-os/python` to import a vocab.
 
 ## Canvas

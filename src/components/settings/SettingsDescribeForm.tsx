@@ -970,7 +970,7 @@ export function SettingsDescribeForm({
       {hint ? <p className="m-0 text-kit-sm leading-5 text-kit-secondary">{hint}</p> : null}
       <div className="overflow-hidden rounded-kit-lg border border-kit-line">
         {headerBool ? (
-          <div className="border-b border-kit-line px-4">
+          <div className="border-b border-kit-line">
             <SurfaceSwitch
               checked={Boolean(draft[headerBool.name])}
               disabled={disabled}

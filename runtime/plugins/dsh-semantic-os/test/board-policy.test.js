@@ -70,11 +70,17 @@ print(json.dumps({
     "tenant_cwd": "/this/project",
     "status": "起草",
   }, cwd="/this/project"),
+  "escaped": resolve_board({
+    "tenant_cwd": "/tmp/fdex\\\\u6d4b\\\\u8bd5",
+    "status": "起草",
+  }, cwd="/tmp/fdex测试"),
 }, ensure_ascii=False))
 `)
   const got = JSON.parse(out)
   assert.equal(got.mismatch.error, 'TENANT_MISMATCH')
   assert.equal(got.ok.status, '起草')
+  assert.equal(got.escaped.error, undefined, JSON.stringify(got.escaped))
+  assert.equal(got.escaped.status, '起草')
 })
 
 test('已冲正 and 作废 do not need a receipt', () => {
@@ -509,6 +515,16 @@ test('sidecar record_decision records without because', async () => {
   assert.match(rec, /existing_because/)
   assert.equal(rec.includes('return {"error": "NO_BECAUSE"}'), false)
   assert.match(rec, /existing_leads/)
+})
+
+test('sidecar record_decision MISSING_FIELD warns and still records', async () => {
+  const { readFile } = await import('node:fs/promises')
+  const src = await readFile(new URL('../python/bootstrap.py', import.meta.url), 'utf8')
+  const rec = (src.split('if op == "record_decision":')[1] || '').split('elif op == "nod_memory_card":')[0] || ''
+  assert.match(rec, /shape_warning/)
+  assert.match(rec, /MISSING_FIELD/)
+  assert.match(rec, /result\["shape_warning"\]/)
+  assert.equal(rec.includes('return {"error": shaped.get("error")'), false)
 })
 
 test('decision page files a 记忆卡片 only with nodded true', async () => {

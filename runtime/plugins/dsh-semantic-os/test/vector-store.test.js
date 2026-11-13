@@ -28,10 +28,11 @@ test('rebuild uses VectorStore with parallel=False and Chinese model', () => {
 import inspect, json, sys
 sys.path.insert(0, "python")
 import stores
-src = inspect.getsource(stores._rebuild_from_texts) + inspect.getsource(stores.search_vectors) + inspect.getsource(stores.make_vector_store)
+src = inspect.getsource(stores._rebuild_from_texts) + inspect.getsource(stores._sync_vectors) + inspect.getsource(stores.search_vectors) + inspect.getsource(stores.make_vector_store)
 print(json.dumps({
   "vectorstore": "VectorStore" in src,
-  "parallel": "parallel=False" in inspect.getsource(stores._rebuild_from_texts),
+  "parallel": "parallel=False" in inspect.getsource(stores._add_vector_docs),
+  "delta": "mode" in inspect.getsource(stores._sync_vectors) and "delete_vectors" in inspect.getsource(stores._sync_vectors),
   "model": stores.VEC_MODEL == "BAAI/bge-small-zh-v1.5",
   "set_text_model": "set_text_model" in inspect.getsource(stores.make_vector_store),
   "tfidf": "TfidfVectorizer" in src,
@@ -45,6 +46,7 @@ print(json.dumps({
   assert.equal(got.set_text_model, true)
   assert.equal(got.tfidf, false)
   assert.equal(got.algo, 'faiss-bge-small-zh-v1.5')
+  assert.equal(got.delta, true)
 })
 
 test('native VectorStore search matches Chinese node text', { timeout: 180000 }, () => {
@@ -136,6 +138,86 @@ print(json.dumps(search_vectors(${JSON.stringify(cwd)}, "洗净")))
 `)
   assert.equal(existsSync(join(dest, 'index.faiss')), true)
   assert.deepEqual(JSON.parse(out), [])
+})
+
+test('save syncs only changed nodes instead of rebuilding the store', { timeout: 180000 }, () => {
+  const out = py(`
+import json, sys, tempfile
+from types import SimpleNamespace
+sys.path.insert(0, "python")
+from stores import rebuild_vectors, _sync_vectors, search_vectors
+
+cwd = tempfile.mkdtemp(prefix="dsos-delta-")
+first = SimpleNamespace(nodes={
+  "n-keep": {"content": "型进语义，行走连接器现查"},
+  "n-old": {"content": "旧文案要被换掉"},
+})
+one = rebuild_vectors(cwd, first)
+same = _sync_vectors(cwd, ["n-keep", "n-old"], [
+  "n-keep\\n型进语义，行走连接器现查",
+  "n-old\\n旧文案要被换掉",
+])
+second_ids = ["n-keep", "n-new"]
+second_texts = [
+  "n-keep\\n型进语义，行走连接器现查",
+  "n-new\\n不镜像权限内数据",
+]
+delta = _sync_vectors(cwd, second_ids, second_texts)
+hits_new = search_vectors(cwd, "不镜像权限内数据", 3)
+hits_old = search_vectors(cwd, "旧文案要被换掉", 3)
+print(json.dumps({
+  "first_mode": one.get("mode"),
+  "same_skip": same.get("skipped"),
+  "delta_mode": delta.get("mode"),
+  "added": delta.get("added"),
+  "changed": delta.get("changed"),
+  "removed": delta.get("removed"),
+  "count": delta.get("count"),
+  "top": (hits_new[0]["id"] if hits_new else ""),
+  "old_gone": not any(row.get("id") == "n-old" for row in hits_old),
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.first_mode, 'full')
+  assert.equal(got.same_skip, true)
+  assert.equal(got.delta_mode, 'delta')
+  assert.equal(got.added, 1)
+  assert.equal(got.removed, 1)
+  assert.equal(got.count, 2)
+  assert.equal(got.top, 'n-new')
+  assert.equal(got.old_gone, true)
+})
+
+test('collect skips archived nodes so delete can prune the index', () => {
+  const out = py(`
+import json, sys
+from types import SimpleNamespace
+sys.path.insert(0, "python")
+from stores import _collect_vector_texts
+from align_ops import run_delete_node
+import inspect
+graph = SimpleNamespace(nodes={
+  "live": {"content": "活节点 采购单", "type": "skos:Concept", "status": "已生效"},
+  "dead": {"content": "归档探针 TOKENZULU", "type": "记忆卡片", "status": "archived", "properties": {"status": "archived"}},
+  "session:abc:1": {"content": "会话日记", "type": "Document"},
+  "bare-entity": {"content": "裸实体", "type": "Entity"},
+})
+ids, texts = _collect_vector_texts(graph)
+src = inspect.getsource(run_delete_node)
+print(json.dumps({
+  "ids": ids,
+  "has_dead": "dead" in ids,
+  "has_live": "live" in ids,
+  "has_session": any(str(i).startswith("session:") for i in ids),
+  "schedules": "schedule_rebuild_vectors" in src,
+}))
+`)
+  const got = JSON.parse(out)
+  assert.deepEqual(got.ids, ['live'])
+  assert.equal(got.has_dead, false)
+  assert.equal(got.has_live, true)
+  assert.equal(got.has_session, false)
+  assert.equal(got.schedules, true)
 })
 
 test('schedule merges later writes and save_session survives rebuild failure', { timeout: 180000 }, () => {

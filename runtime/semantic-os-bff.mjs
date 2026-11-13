@@ -131,8 +131,39 @@ export function handleSemanticOsHttp(request, response) {
   return true
 }
 
+function jsonClone(value) {
+  try {
+    return JSON.parse(JSON.stringify(value ?? {}))
+  } catch {
+    return { ok: true, started: true }
+  }
+}
+
+function sessionIngestLocal(path) {
+  const ingest = runtime?.sessionIngest
+  if (path === '/session-ingest/now') {
+    if (!ingest) {
+      const error = new Error('NO_SESSION_INGEST')
+      error.code = 'NO_SESSION_INGEST'
+      throw error
+    }
+    const kick = typeof ingest.kick === 'function' ? ingest.kick : ingest.tick
+    return Promise.resolve(kick.call(ingest)).then((result) => {
+      const packed = result && typeof result === 'object' ? result : {}
+      return jsonClone({ ...packed, ok: true, started: packed.started !== false })
+    })
+  }
+  if (path === '/session-ingest') {
+    const snap = ingest && typeof ingest.snapshot === 'function' ? ingest.snapshot() : { error: 'NO_SESSION_INGEST' }
+    return jsonClone({ ok: true, ...snap })
+  }
+  return null
+}
+
 export async function invokeSemanticOs(path, options = {}) {
   if (!runtime) throw new Error('semantic-os BFF 未启动')
+  const local = sessionIngestLocal(path)
+  if (local) return local
   const port = Number(process.env.FDE_RUNTIME_PORT || FDE_RUNTIME_PORT || 4318)
   const origin = `http://127.0.0.1:${port}`
   let url

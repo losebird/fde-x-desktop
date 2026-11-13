@@ -102,6 +102,94 @@ print(json.dumps({
   assert.equal(got.after.length, got.before.length)
 })
 
+test('record_decision MISSING_FIELD on 采购单 still records 已生效', () => {
+  const out = py(`
+import json, os, sys, tempfile
+sys.path.insert(0, "python")
+from bootstrap import run_tool, run_find_precedents
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+up = run_tool("upsert_workspace_vocab", cwd, {
+  "name": "本机业务单据型 · 单据",
+  "concepts": [{"id": "purchase-order", "label": "采购单", "fields": ["单号", "状态"], "can": ["现查"]}],
+})
+first = run_tool("record_decision", cwd, {
+  "category": "procurement_verification",
+  "scenario": "PO-20261112 缺口不齐就停，不要过账",
+  "reasoning": "键对不上就停",
+  "outcome": "缺口不齐就停，不要过账",
+  "confidence": 0.9,
+  "kind": "采购单",
+  "ticket": "PO-20261112",
+  "system": "采购",
+  "environment": "测试",
+})
+prec = run_find_precedents(cwd, {"scenario": "PO-20261112 缺口不齐就停，不要过账", "max_results": 10})
+pids = [r.get("decision_id") for r in prec.get("precedents") or []]
+print(json.dumps({
+  "up": {"ok": up.get("ok"), "error": up.get("error")},
+  "first": first,
+  "did": str(first.get("decision_id") or ""),
+  "status": first.get("board_status"),
+  "warn": first.get("shape_warning") or {},
+  "ref": first.get("reference_id"),
+  "prec": pids,
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.up.ok, true, JSON.stringify(got.up))
+  assert.ok(got.did, JSON.stringify(got.first))
+  assert.equal(got.status, '已生效')
+  assert.equal(got.first.error, undefined, JSON.stringify(got.first))
+  assert.equal(got.warn.error, 'MISSING_FIELD')
+  assert.equal(got.warn.field, '状态')
+  assert.ok(!got.ref, JSON.stringify(got.first))
+  assert.ok(got.prec.includes(got.did), JSON.stringify(got.prec))
+})
+
+test('record_decision unfolds \\\\uXXXX tenant_cwd and still skips 业务引用', () => {
+  const out = py(`
+import json, os, sys, tempfile
+sys.path.insert(0, "python")
+from bootstrap import run_tool
+home = tempfile.mkdtemp(); os.environ["DSH_HOME"] = home
+cwd = tempfile.mkdtemp()
+run_tool("upsert_workspace_vocab", cwd, {
+  "name": "本机业务单据型 · 单据",
+  "concepts": [{"id": "purchase-order", "label": "采购单", "fields": ["单号", "状态"], "can": ["现查"]}],
+})
+first = run_tool("record_decision", cwd, {
+  "category": "procurement_verification",
+  "scenario": "\\\\u7f3a\\\\u53e3\\\\u4e0d\\\\u9f50\\\\u5c31\\\\u505c",
+  "reasoning": "\\\\u952e\\\\u5bf9\\\\u4e0d\\\\u4e0a\\\\u5c31\\\\u505c",
+  "outcome": "\\\\u7f3a\\\\u53e3\\\\u4e0d\\\\u9f50\\\\u5c31\\\\u505c\\\\uff0c\\\\u4e0d\\\\u8981\\\\u8fc7\\\\u8d26",
+  "confidence": 0.9,
+  "kind": "\\\\u91c7\\\\u8d2d\\\\u5355",
+  "ticket": "PO-20261112",
+  "system": "\\\\u91c7\\\\u8d2d",
+  "environment": "\\\\u6d4b\\\\u8bd5",
+  "nod_kind": "\\\\u4f1a\\\\u7b7e\\\\u540c\\\\u610f",
+  "tenant_cwd": "".join("\\\\u%04x" % ord(ch) for ch in cwd),
+})
+print(json.dumps({
+  "first": first,
+  "did": str(first.get("decision_id") or ""),
+  "status": first.get("board_status"),
+  "warn": first.get("shape_warning") or {},
+  "ref": first.get("reference_id"),
+  "nod": first.get("nod_kind"),
+}, ensure_ascii=False))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.first.error, undefined, JSON.stringify(got.first))
+  assert.ok(got.did, JSON.stringify(got.first))
+  assert.equal(got.status, '已生效')
+  assert.equal(got.warn.error, 'MISSING_FIELD')
+  assert.equal(got.warn.field, '状态')
+  assert.ok(!got.ref, JSON.stringify(got.first))
+  assert.equal(got.nod, '会签同意')
+})
+
 test('record_decision without because is live and listed', () => {
   const out = py(`
 import json, os, sys, tempfile

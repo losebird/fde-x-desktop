@@ -2,6 +2,7 @@ import { emit } from '../events.mjs'
 import { upsertMemoryWriteLog } from '../db.mjs'
 import { looksLikeJsonDump } from '../biz/session-origin-text.mjs'
 import { loadOrigin } from '../routes/corpus.mjs'
+import { isLowRiskAutoFile } from './auto-file.mjs'
 import { asDraftCard, cueFromOriginDoc, draftMemoryCardInsert } from './cards.mjs'
 import { hostSourceOf, instanceOriginOf, originOfCard } from './identity.mjs'
 
@@ -103,12 +104,31 @@ export async function draftCard(deps, input = {}) {
     if (origin && !duplicate) {
       await indexPassage(deps, { cwd, id: origin, text: indexText || label })
     }
+    const face = asDraftCard({ ...(drafted && typeof drafted === 'object' ? drafted : {}), id: cardId }, label)
+    if (!duplicate && isLowRiskAutoFile({ label, origin, cause })) {
+      try {
+        const filed = await semanticPython(deps.aiRuntime, 'nod_memory_card', { id: cardId, nodded: true }, cwd)
+        if (filed && typeof filed === 'object' && !filed.error && filed.ok !== false) {
+          emit('memory.card.filed', { origin, cardId, via: 'low_risk' }, { workspaceCwd: cwd || null, source: 'memory-writer' })
+          return {
+            ok: true,
+            cardId,
+            drafted,
+            duplicate,
+            autoFiled: true,
+            card: { ...face, status: '已入档' },
+          }
+        }
+      } catch (error) {
+        console.warn('memory_auto_file_failed', cardId, error)
+      }
+    }
     return {
       ok: true,
       cardId,
       drafted,
       duplicate,
-      card: asDraftCard({ ...(drafted && typeof drafted === 'object' ? drafted : {}), id: cardId }, label),
+      card: face,
     }
   } catch (error) {
     console.warn('memory_writer_draft_failed', error)

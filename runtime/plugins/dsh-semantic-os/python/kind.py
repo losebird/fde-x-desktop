@@ -5,9 +5,27 @@ from __future__ import annotations
 import re
 from typing import Any
 
+_UHEX = re.compile(r"\\u([0-9a-fA-F]{4})|\\U([0-9a-fA-F]{8})")
+
+
+def unfold_escapes(value: Any) -> str:
+    """Turn leftover \\uXXXX tool-arg escapes into the real characters."""
+    text = str(value or "")
+    if "\\u" not in text.lower() and "\\U" not in text:
+        return text
+
+    def repl(match: re.Match[str]) -> str:
+        hexpart = match.group(1) or match.group(2)
+        try:
+            return chr(int(hexpart, 16))
+        except ValueError:
+            return match.group(0)
+
+    return _UHEX.sub(repl, text)
+
 
 def _text(value: Any) -> str:
-    return str(value or "").strip()
+    return unfold_escapes(value).strip()
 
 
 _RESOURCE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{0,63}$")

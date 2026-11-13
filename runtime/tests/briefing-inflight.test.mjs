@@ -201,6 +201,8 @@ test('Briefing land uses onOpen=0; openRef increments land', () => {
   assert.match(briefing, /briefingLand/)
   assert.match(briefing, /refresh\(false\)/)
   assert.match(briefing, /refresh\(true\)/)
+  assert.match(briefing, /briefingInFlight/)
+  assert.match(briefing, /setInterval\(tick, 1500\)/)
   const openRef = readFileSync(join(repoRoot, 'src/lib/open-ref.ts'), 'utf8')
   assert.match(openRef, /setBriefingBrowse\(\{ land:/)
   const routes = readFileSync(join(repoRoot, 'runtime/routes/briefing.mjs'), 'utf8')

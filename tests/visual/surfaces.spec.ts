@@ -38,10 +38,10 @@ test('settings exposes eight sections by name', async ({ page }, testInfo) => {
   await page.goto('/settings')
   await page.waitForURL(/\/ai/)
   await expect(page.getByText('设置', { exact: true }).first()).toBeVisible()
-  const select = page.getByRole('combobox', { name: '分类' })
-  await expect(select).toBeVisible()
+  const nav = page.getByRole('navigation', { name: '分类' })
+  await expect(nav).toBeVisible()
   for (const label of SETTINGS) {
-    await select.selectOption({ label })
+    await nav.getByRole('button', { name: label, exact: true }).click()
     await expect(page.getByRole('heading', { name: label, level: 2 })).toBeVisible()
     if (process.env.FDE_VISUAL_OUT) {
       await page.screenshot({
@@ -62,10 +62,10 @@ test('settings exposes eight sections by name', async ({ page }, testInfo) => {
     await page.mouse.move(box.x + box.width / 2 + (start.width - target), box.y + 80, { steps: 12 })
     await page.mouse.up()
   }
-  const nav = page.getByRole('navigation', { name: '分类' })
-  await expect(nav).toBeVisible()
+  const wideNav = page.getByRole('navigation', { name: '分类' })
+  await expect(wideNav).toBeVisible()
   for (const label of SETTINGS) {
-    await nav.getByRole('button', { name: label, exact: true }).click()
+    await wideNav.getByRole('button', { name: label, exact: true }).click()
     await expect(page.getByRole('heading', { name: label, level: 2 })).toBeVisible()
     if (process.env.FDE_VISUAL_OUT) {
       await page.screenshot({
@@ -84,7 +84,8 @@ test('settings exposes eight sections by name', async ({ page }, testInfo) => {
 test('appearance font size saves and reads back', async ({ page }) => {
   await page.goto('/settings')
   await page.waitForURL(/\/ai/)
-  await page.getByRole('combobox', { name: '分类' }).selectOption({ label: '外观' })
+  const appearanceNav = page.getByRole('navigation', { name: '分类' })
+  await appearanceNav.getByRole('button', { name: '外观', exact: true }).click()
   const field = page.getByLabel('fontSize')
   await expect(field).toBeVisible({ timeout: 20000 })
   const before = await field.inputValue()

@@ -9,6 +9,8 @@ import os
 from datetime import datetime, timezone
 from typing import Any
 
+from kind import unfold_escapes
+
 
 def _id_list(value: Any) -> list[str]:
     if isinstance(value, str) and value.strip():
@@ -49,8 +51,8 @@ def _receipt_id(args: dict[str, Any]) -> str:
 
 
 def _same_cwd(left: str, right: str) -> bool:
-    a = str(left or "").strip()
-    b = str(right or "").strip()
+    a = unfold_escapes(left).strip()
+    b = unfold_escapes(right).strip()
     if not a or not b:
         return True
     try:
@@ -65,7 +67,7 @@ NOD_KINDS = ("会签同意", "本机工具", "业务过账")
 def nod_kind_of(args: dict[str, Any] | None) -> str:
     args = args or {}
     meta = args.get("metadata") if isinstance(args.get("metadata"), dict) else {}
-    kind = str(args.get("nod_kind") or args.get("nodKind") or meta.get("nod_kind") or meta.get("nodKind") or "").strip()
+    kind = unfold_escapes(args.get("nod_kind") or args.get("nodKind") or meta.get("nod_kind") or meta.get("nodKind") or "").strip()
     if kind in NOD_KINDS:
         return kind
     return ""
@@ -101,7 +103,7 @@ def resolve_board(args: dict[str, Any] | None, cwd: str = "", existing: list[Any
     """Decide the board status for one record_decision call."""
     args = dict(args or {})
     meta = args.get("metadata") if isinstance(args.get("metadata"), dict) else {}
-    tenant = str(
+    tenant = unfold_escapes(
         args.get("tenant_cwd")
         or args.get("tenantCwd")
         or meta.get("tenant_cwd")

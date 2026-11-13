@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+import { dirname, join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
+
+const launch = join(dirname(fileURLToPath(import.meta.url)), '..', 'mcp-npx-launch.mjs')
+await import(pathToFileURL(launch).href)

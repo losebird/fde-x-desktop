@@ -153,9 +153,12 @@ import { discardBriefingSessionAllow, stageBriefingSessionAllow } from './briefi
 import { readDefinitionSections } from './briefing/store.mjs'
 import { startMemoryWriter } from './memory/writer.mjs'
 import { asDraftCard, attachCuesOnCards, attachCuesOnGroups, collapseCueCards, loadNamedCards, validateMemoryCardLabel } from './memory/cards.mjs'
+import { fileLowRiskDrafts } from './memory/auto-file.mjs'
 import { attachCardOrigin, draftCard } from './memory/draft.mjs'
-import { instanceOriginOf } from './memory/identity.mjs'
-import { HEALTH_PAGE, buildHealthSheet, collectHealthCardIds, dupIssuesFromEnrich, healthWritePlan, liveDuplicateBag } from './memory/health.mjs'
+import { hostSourceOf, instanceOriginOf, originOfCard } from './memory/identity.mjs'
+import { DOSSIER_EDGE_TYPES, scanDossierIssues, scanDossierLinkIssues } from './memory/dossier-index.mjs'
+import { scanProofreadIssues } from './memory/dream-proofread.mjs'
+import { HEALTH_PAGE, buildHealthSheet, collectHealthCardIds, dupIssuesFromEnrich, healthWritePlan, liveDuplicateBag, mergeDossierGroup, mergeDossierLinkGroup, mergeProofreadGroup } from './memory/health.mjs'
 import {
   FDE_AI_WORKSPACE,
   FDE_ALLOWED_ORIGINS,
@@ -2196,7 +2199,21 @@ const server = createServer(async (request, response) => {
 
     if (request.method === 'POST' && url.pathname === '/api/v1/memory/session-ingest') {
       const result = await aiRuntime.semanticOs('/session-ingest/now', { method: 'POST', body: {} })
+      const ingestCwd = resolveHttpWorkspace({ url, body: {}, runtimeCwd: aiRuntime.cwd, whenAbsent: 'runtime' }).cwd
+      if (ingestCwd) {
+        void fileLowRiskDrafts({ db, aiRuntime }, { cwd: ingestCwd }).catch((error) => {
+          console.warn('memory_auto_file_scan_failed', error)
+        })
+      }
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/memory/auto-file') {
+      const resolvedFile = requireHttpWorkspace(url, await readJson(request), response, currentCorrelationId)
+      if (!resolvedFile) return
+      const scanned = await fileLowRiskDrafts({ db, aiRuntime }, { cwd: resolvedFile.cwd })
+      sendJson(response, 200, { data: scanned, correlationId: currentCorrelationId })
       return
     }
 
@@ -2761,13 +2778,44 @@ const server = createServer(async (request, response) => {
         dupOffset,
         page: HEALTH_PAGE,
       })
+      let sheetWithDream = sheet
+      try {
+        const listed = await aiRuntime.semanticOs('/python', {
+          op: 'list_memory_cards',
+          args: { include_filed: true, limit: 80 },
+          ...(cwd ? { cwd } : {}),
+        })
+        const rows = Array.isArray(listed?.cards) ? listed.cards : []
+        const proofIds = rows.map((row) => row && row.id).filter(Boolean)
+        const proofOrigins = memoryWriteOriginByCardIds(db, proofIds)
+        const proofCards = rows.map((row) => attachCardOrigin(row, proofOrigins))
+        const issues = await scanProofreadIssues(proofCards, (origin) => loadOrigin({ db, aiRuntime, cwd }, origin))
+        sheetWithDream = mergeProofreadGroup(sheet, issues)
+        const dossiers = scanDossierIssues(proofCards)
+        sheetWithDream = mergeDossierGroup(sheetWithDream, dossiers)
+        let edges = []
+        try {
+          const packed = await aiRuntime.semanticOs('/python', {
+            op: 'list_graph_edges',
+            args: { limit: 2000 },
+            ...(cwd ? { cwd } : {}),
+          })
+          edges = Array.isArray(packed?.edges) ? packed.edges : []
+        } catch {
+          edges = []
+        }
+        const links = scanDossierLinkIssues(proofCards, edges)
+        sheetWithDream = mergeDossierLinkGroup(sheetWithDream, links)
+      } catch {
+        sheetWithDream = sheet
+      }
       const groups = await attachCuesOnGroups(
-        sheet.groups,
+        sheetWithDream.groups,
         (origin) => loadOrigin({ db, aiRuntime, cwd }, origin),
         originMap,
         cardById,
       )
-      sendJson(response, 200, { data: { ...sheet, groups }, correlationId: currentCorrelationId })
+      sendJson(response, 200, { data: { ...sheetWithDream, groups }, correlationId: currentCorrelationId })
       return
     }
 
@@ -2787,6 +2835,144 @@ const server = createServer(async (request, response) => {
       }
       if (plan.error) {
         sendError(response, 400, 'validation_error', plan.error === 'NOT_A_SESSION' ? '出处只写会话或文件' : '梳理参数不完整', currentCorrelationId)
+        return
+      }
+      if (plan.fde === 'dream_link_group') {
+        const source = String(plan.args && plan.args.source || '').trim()
+        const listed = await aiRuntime.semanticOs('/python', {
+          op: 'list_memory_cards',
+          args: { include_filed: true, limit: 80 },
+          ...(cwd ? { cwd } : {}),
+        })
+        const rows = Array.isArray(listed?.cards) ? listed.cards : []
+        const ids = rows.map((row) => row && row.id).filter(Boolean)
+        const faced = rows.map((row) => attachCardOrigin(row, memoryWriteOriginByCardIds(db, ids)))
+        let edges = []
+        try {
+          const packed = await aiRuntime.semanticOs('/python', {
+            op: 'list_graph_edges',
+            args: { limit: 2000 },
+            ...(cwd ? { cwd } : {}),
+          })
+          edges = Array.isArray(packed?.edges) ? packed.edges : []
+        } catch {
+          edges = []
+        }
+        const { scanDossierLinkIssues: scanLinks } = await import('./memory/dossier-index.mjs')
+        const issue = scanLinks(faced, edges).find((row) => String(row.id || '') === source)
+        if (!issue || !Array.isArray(issue.links) || !issue.links.length) {
+          sendError(response, 400, 'validation_error', '没有待连边', currentCorrelationId)
+          return
+        }
+        const written = []
+        for (const link of issue.links) {
+          const type = DOSSIER_EDGE_TYPES.has(String(link.type || '')) ? String(link.type) : 'enriches'
+          const result = await aiRuntime.semanticOs('/python', {
+            op: 'nod_memory_edge',
+            args: { source: link.source, target: link.target, type, nodded: true },
+            ...(cwd ? { cwd } : {}),
+          })
+          if (result && typeof result === 'object' && result.error) {
+            sendError(response, 502, 'memory_error', String(result.hint || result.error || '连边失败'), currentCorrelationId)
+            return
+          }
+          written.push({ source: link.source, target: link.target, type })
+        }
+        sendJson(response, 200, {
+          data: { ok: true, source, rows: written },
+          correlationId: currentCorrelationId,
+        })
+        return
+      }
+      if (plan.fde === 'dream_index') {
+        const key = String(plan.args && plan.args.key || '').trim()
+        const listed = await aiRuntime.semanticOs('/python', {
+          op: 'list_memory_cards',
+          args: { include_filed: true, limit: 80 },
+          ...(cwd ? { cwd } : {}),
+        })
+        const rows = Array.isArray(listed?.cards) ? listed.cards : []
+        const ids = rows.map((row) => row && row.id).filter(Boolean)
+        const faced = rows.map((row) => attachCardOrigin(row, memoryWriteOriginByCardIds(db, ids)))
+        const { scanDossierIssues: scan } = await import('./memory/dossier-index.mjs')
+        const issue = scan(faced).find((row) => String(row.key || '') === key)
+        if (!issue) {
+          sendError(response, 400, 'validation_error', '没有案卷', currentCorrelationId)
+          return
+        }
+        const drafted = await draftCard({ db, aiRuntime }, {
+          cwd,
+          origin: issue.origin,
+          cause: 'correction',
+          label: issue.draft,
+          auto: true,
+        })
+        if (drafted.skipped) {
+          sendError(response, 503, 'memory_error', '起草被跳过', currentCorrelationId)
+          return
+        }
+        if (!drafted.ok) {
+          const err = drafted.error && typeof drafted.error === 'object' ? drafted.error : {}
+          sendError(response, 502, 'memory_error', String(err.hint || err.error || '起草失败'), currentCorrelationId)
+          return
+        }
+        sendJson(response, 200, {
+          data: {
+            ok: true,
+            card: drafted.card || asDraftCard({ id: drafted.cardId }, issue.draft),
+            key,
+            members: issue.members,
+          },
+          correlationId: currentCorrelationId,
+        })
+        return
+      }
+      if (plan.fde === 'dream_correct') {
+        const id = String(plan.args && plan.args.id || '').trim()
+        const loaded = await loadNamedCards(aiRuntime, cwd, [id])
+        const raw = loaded.get(id)
+        if (!raw) {
+          sendError(response, 400, 'validation_error', '找不到这张卡', currentCorrelationId)
+          return
+        }
+        const faced = attachCardOrigin(raw, memoryWriteOriginByCardIds(db, [id]))
+        const origin = hostSourceOf(originOfCard(faced) || faced.origin)
+        let doc = null
+        if (origin) {
+          try { doc = await loadOrigin({ db, aiRuntime, cwd }, origin) } catch { doc = null }
+        }
+        const { proofreadIssue } = await import('./memory/dream-proofread.mjs')
+        const issue = proofreadIssue(faced, doc)
+        if (!issue) {
+          sendError(response, 400, 'validation_error', '没有校对冲突', currentCorrelationId)
+          return
+        }
+        const drafted = await draftCard({ db, aiRuntime }, {
+          cwd,
+          origin: issue.origin,
+          cause: 'correction',
+          label: issue.draft,
+          auto: true,
+          ...(issue.sessionId ? { sessionId: issue.sessionId } : {}),
+        })
+        if (drafted.skipped) {
+          sendError(response, 503, 'memory_error', '起草被跳过', currentCorrelationId)
+          return
+        }
+        if (!drafted.ok) {
+          const err = drafted.error && typeof drafted.error === 'object' ? drafted.error : {}
+          sendError(response, 502, 'memory_error', String(err.hint || err.error || '起草失败'), currentCorrelationId)
+          return
+        }
+        sendJson(response, 200, {
+          data: {
+            ok: true,
+            card: drafted.card || asDraftCard({ id: drafted.cardId }, issue.draft),
+            replaced: id,
+            edge: 'replaces',
+          },
+          correlationId: currentCorrelationId,
+        })
         return
       }
       const runPython = async (op, args) => aiRuntime.semanticOs('/python', {

@@ -65,6 +65,13 @@ export function looksLikeJsonDump(text) {
   }
 }
 
+function clipTurn(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return ''
+  if (raw.length <= MAX_TURN) return raw
+  return `${raw.slice(0, MAX_TURN - 1).trim()}…`
+}
+
 function userTextFromEvent(event) {
   if (!event || event.type !== 'user/message') return ''
   const data = event.data || {}
@@ -80,16 +87,44 @@ function userTextFromEvent(event) {
     if (block && block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
   }
   const text = parts.join('\n').trim()
-  if (!text || text.length > MAX_TURN) return ''
+  if (!text) return ''
   if (SKIP_SPEECH.test(text)) return ''
   if (text.startsWith('/')) return ''
   if (looksLikeJsonDump(text)) return ''
-  return text
+  return clipTurn(text)
 }
 
-function collectUserTexts(lines) {
-  const out = []
+function assistantTextFromEvent(event) {
+  if (!event || event.type !== 'assistant/message') return ''
+  const data = event.data && typeof event.data === 'object' ? event.data : {}
+  const message = data.message && typeof data.message === 'object' ? data.message : data
+  const content = message.content
+  const parts = []
+  if (typeof content === 'string') parts.push(content)
+  else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block) continue
+      if (typeof block === 'string') parts.push(block)
+      if (block.type === 'reasoning') continue
+      if (block.type === 'text' && typeof block.text === 'string') parts.push(block.text)
+    }
+  }
+  const text = parts.join('\n').trim()
+  if (!text || text.startsWith('{')) return ''
+  if (SKIP_SPEECH.test(text)) return ''
+  if (looksLikeJsonDump(text)) return ''
+  return clipTurn(text)
+}
+
+function collectOriginTexts(lines) {
+  const users = []
+  const assistants = []
   const seen = new Set()
+  const push = (bucket, text) => {
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    bucket.push(text)
+  }
   for (const line of lines) {
     const raw = String(line || '').trim()
     if (!raw) continue
@@ -99,17 +134,15 @@ function collectUserTexts(lines) {
     } catch {
       continue
     }
-    const text = userTextFromEvent(event)
-    if (!text || seen.has(text)) continue
-    seen.add(text)
-    out.push(text)
+    push(users, userTextFromEvent(event))
+    push(assistants, assistantTextFromEvent(event))
   }
-  return out
+  return [...users, ...assistants]
 }
 
 async function textsFromBuffer(name, buf) {
   if (name.endsWith('.jsonl') && !name.endsWith('.jsonl.zstd')) {
-    return collectUserTexts(buf.toString('utf8').split('\n'))
+    return collectOriginTexts(buf.toString('utf8').split('\n'))
   }
   if (!name.endsWith('.jsonl.zstd') && !name.endsWith('.zstd')) return []
   const frames = scanZstdFrames(buf)
@@ -120,7 +153,7 @@ async function textsFromBuffer(name, buf) {
       if (line.trim()) lines.push(line)
     }
   }
-  return collectUserTexts(lines)
+  return collectOriginTexts(lines)
 }
 
 function cwdOfHeaderEvent(event) {
@@ -209,7 +242,8 @@ async function findSessionDir(sessionId, sessionRoot) {
 }
 
 /**
- * Read original user turns from a DSH session log. Never returns JSON dumps.
+ * Read session origin text: user turns first, then assistant replies.
+ * Skips injected speech, reasoning, and JSON dumps.
  * @param {string} sessionId
  * @param {{ sessionRoot?: string }} [opts]
  */

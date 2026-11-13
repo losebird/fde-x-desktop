@@ -15,6 +15,19 @@ export const DEFAULT_SESSION_INGEST_INTERVAL_MIN = 30
 export const SESSION_STAMP_BUDGET = 4
 export const SESSION_GRAPH_BUDGET_FORCE = 16
 export const FILE_INGEST_BUDGET = 2
+export const TICK_DEADLINE_MS = 45_000
+export const SESSION_STEP_MS = 8_000
+export const SIDECAR_STEP_MS = 8_000
+
+function withTimeout(promise, ms, code) {
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(code || 'TIMEOUT')), ms)
+  })
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => {
+    if (timer) clearTimeout(timer)
+  })
+}
 
 function dshHome() {
   return process.env.DSH_HOME || process.env.FDE_DSH_HOME || join(homedir(), '.dsh-fde-x')
@@ -22,6 +35,33 @@ function dshHome() {
 
 function cursorPath() {
   return join(dshHome(), 'semantic-os', 'session-cursors.json')
+}
+
+async function pingLowRiskAutoFile(cwd) {
+  const path = String(cwd || '').trim()
+  if (!path) return
+  const port = String(process.env.FDE_RUNTIME_PORT || '4318')
+  const home = process.env.FDE_DSH_HOME || process.env.DSH_HOME || ''
+  let token = ''
+  if (home) {
+    try { token = String(await readFile(join(home, '.ui-token'), 'utf8')).trim() } catch { token = '' }
+  }
+  const get = globalThis.fetch
+  if (typeof get !== 'function') return
+  try {
+    await get(`http://127.0.0.1:${port}/api/v1/memory/auto-file`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        Origin: `http://127.0.0.1:${port}`,
+        ...(token ? { 'x-fde-ui-token': token } : {}),
+      },
+      body: JSON.stringify({ cwd: path, workspaceCwd: path }),
+      signal: AbortSignal.timeout(15000),
+    })
+  } catch {
+    /* BFF optional */
+  }
 }
 
 function stampPath() {
@@ -60,7 +100,7 @@ async function picturedOf({ sidecar, cwd, path, mediaType, getEyes }) {
       op: 'describe_image',
       cwd,
       args: { path, mediaType: mediaType || '' },
-    }).catch(() => null)
+    }, { timeoutMs: SIDECAR_STEP_MS }).catch(() => null)
     const text = String(got && got.text || '').trim()
     if (text) return text
   }
@@ -132,20 +172,49 @@ export function eventTime(event) {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString()
 }
 
+const SKIP_INGEST = /Current runtime context|Current DSH file policy|system-reminder|available_skills|<goal_round>|<skill_content>|Compactions remaining/
+
+function looksLikeJsonDump(text) {
+  const raw = String(text || '').trim()
+  if (!raw.startsWith('{') && !raw.startsWith('[')) return false
+  try {
+    JSON.parse(raw)
+    return true
+  } catch {
+    return false
+  }
+}
+
+function assistantVisibleText(content) {
+  if (typeof content === 'string') return content.trim()
+  if (!Array.isArray(content)) return ''
+  return content.map((part) => {
+    if (!part) return ''
+    if (typeof part === 'string') return part
+    if (part.type === 'reasoning') return ''
+    if (part.type === 'text' && typeof part.text === 'string') return part.text
+    return ''
+  }).join('').trim()
+}
+
 export function eventText(event) {
   if (!event || !event.data) return ''
+  let text = ''
   if (event.type === 'user/message') {
     const src = event.data.source || {}
     if (src.kind && src.kind !== 'user') return ''
-    const text = textFromContent(event.data.content)
-    if (/^Current (runtime context|DSH file policy)/.test(text)) return ''
-    return text
-  }
-  if (event.type === 'assistant/message') {
+    text = textFromContent(event.data.content).trim()
+  } else if (event.type === 'assistant/message') {
     const message = event.data.message || event.data
-    return textFromContent(message.content)
+    text = assistantVisibleText(message.content)
+  } else {
+    return ''
   }
-  return ''
+  if (!text) return ''
+  if (SKIP_INGEST.test(text)) return ''
+  if (text.startsWith('/')) return ''
+  if (looksLikeJsonDump(text)) return ''
+  return text
 }
 
 export function headerOf(value) {
@@ -184,11 +253,19 @@ export function adaptSessionPersistence(raw) {
       return (Array.isArray(rows) ? rows : []).map((row) => {
         const header = headerOf(row) || {}
         const meta = header.meta && typeof header.meta === 'object' ? header.meta : {}
+        const values = row && row.projections && row.projections.values && typeof row.projections.values === 'object'
+          ? row.projections.values
+          : (header.projections && header.projections.values && typeof header.projections.values === 'object'
+            ? header.projections.values
+            : {})
+        const titleNode = header.title || meta.title || values.title
+        const title = typeof titleNode === 'object' && titleNode && titleNode.val != null
+          ? String(titleNode.val || '').trim()
+          : String(titleNode || '').trim()
         const out = {
           id: String(header.id || ''),
           cwd: String(header.cwd || meta.cwd || ''),
         }
-        const title = String(header.title || meta.title || '').trim()
         if (title) out.title = title
         const preset = String(header.agentPreset || meta.agentPreset || '').trim()
         if (preset) out.agentPreset = preset
@@ -196,6 +273,7 @@ export function adaptSessionPersistence(raw) {
         if (header.createdAt != null) out.createdAt = header.createdAt
         if (header.updatedAt != null) out.updatedAt = header.updatedAt
         else if (header.createdAt != null) out.updatedAt = header.createdAt
+        if (out.lastPromptAt == null && out.updatedAt != null) out.lastPromptAt = out.updatedAt
         return out
       })
     },
@@ -227,6 +305,9 @@ export function adaptSessionPersistence(raw) {
  */
 export function createSessionIngest(opts) {
   const { sidecar, getPersistence, getEyes, getExtract, extractQueue, getConfig, onGraphWrite, startFileIngest } = opts
+  const stepMs = Number(opts.sessionStepMs) > 0 ? Number(opts.sessionStepMs) : SESSION_STEP_MS
+  const deadlineMs = Number(opts.tickDeadlineMs) > 0 ? Number(opts.tickDeadlineMs) : TICK_DEADLINE_MS
+  const sidecarMs = Number(opts.sidecarStepMs) > 0 ? Number(opts.sidecarStepMs) : SIDECAR_STEP_MS
   /** @type {ReturnType<typeof setInterval> | null} */
   let timer = null
   /** @type {ReturnType<typeof setTimeout> | null} */
@@ -235,6 +316,7 @@ export function createSessionIngest(opts) {
   let retryTimer = null
   let notReadyRetries = 0
   let running = false
+  let startedAt = 0
   let last = {
     at: 0,
     ok: false,
@@ -304,6 +386,7 @@ export function createSessionIngest(opts) {
         path: `session:${id}:${seq}`,
         text: text.slice(0, 20_000),
         role: event.type === 'user/message' ? 'user' : 'assistant',
+        ingest_source: 'session_ingest',
         messageId: (event.data && (event.data.id || (event.data.message && event.data.message.id))) || '',
         ...(stamped ? { timestamp: stamped } : {}),
       })
@@ -346,7 +429,7 @@ export function createSessionIngest(opts) {
         op: 'upsert_documents',
         cwd,
         args: { texts: texts.slice(i, i + chunk) },
-      }).catch(() => null)
+      }, { timeoutMs: sidecarMs }).catch(() => null)
       if (!body || body.error) return { ok: false, count, error: (body && body.error) || 'UPSERT_FAILED' }
       count += Number(body.count) || 0
     }
@@ -375,7 +458,7 @@ export function createSessionIngest(opts) {
         op: 'stamp_session_times',
         cwd,
         args: { stamps: stamps.slice(i, i + chunk) },
-      }).catch(() => null)
+      }, { timeoutMs: sidecarMs }).catch(() => null)
       if (!body || body.error) return { ok: false, attempted: stamps.length, stamped: n, graph: true }
       n += Number(body.stamped) || 0
     }
@@ -418,6 +501,8 @@ export function createSessionIngest(opts) {
       return last
     }
     running = true
+    startedAt = Date.now()
+    const deadline = startedAt + deadlineMs
     let sessions = 0
     let ingested = 0
     let skipped = 0
@@ -432,6 +517,10 @@ export function createSessionIngest(opts) {
       sessions = list.length
       let stampLeft = opts.force ? SESSION_GRAPH_BUDGET_FORCE : SESSION_STAMP_BUDGET
       for (const header of list) {
+        if (Date.now() > deadline) {
+          if (!error) error = 'TICK_TIMEOUT'
+          break
+        }
         const id = headerId(header)
         const cwd = String(headerCwd(header) || '').replace(/[\r\n\t]/g, '')
         if (!id || !cwd) {
@@ -453,12 +542,12 @@ export function createSessionIngest(opts) {
         const rec = stampRecord(stamps[id])
         let stampResult = null
         if (opts.force || (((!rec || !rec.graph) && fromSeq > 0 && stampLeft > 0))) {
-          stampResult = await stampExisting(persistence, cwd, id)
+          stampResult = await withTimeout(stampExisting(persistence, cwd, id), stepMs, 'SESSION_TIMEOUT')
           stampLeft -= 1
         }
         let packed
         try {
-          packed = await persistence.readFrom(id, fromSeq)
+          packed = await withTimeout(persistence.readFrom(id, fromSeq), stepMs, 'SESSION_TIMEOUT')
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err)
           skipped += 1
@@ -482,6 +571,7 @@ export function createSessionIngest(opts) {
               path: `session:${id}:${seq}`,
               text: text.slice(0, 20_000),
               role: event.type === 'user/message' ? 'user' : 'assistant',
+              ingest_source: 'session_ingest',
               messageId: (event.data && (event.data.id || (event.data.message && event.data.message.id))) || '',
               timestamp: eventTime(event),
             }
@@ -510,7 +600,7 @@ export function createSessionIngest(opts) {
                 nodded: true,
                 text: pictured || '',
               },
-            }).catch(() => null)
+            }, { timeoutMs: sidecarMs }).catch(() => null)
           }
           for (const file of media) {
             if (imagesThisSession >= 16) break
@@ -582,7 +672,7 @@ export function createSessionIngest(opts) {
             .filter((row) => String(row.path || '').startsWith('session:') || String(row.path || '').startsWith('file:') || String(row.path || '').startsWith('mail:'))
             .map((row) => ({ id: row.path, text: row.text, time: row.timestamp }))
           if (rows.length) {
-            await postPython(sidecar, { op: 'index_passages', cwd, args: { rows } }).catch(() => null)
+            await postPython(sidecar, { op: 'index_passages', cwd, args: { rows } }, { timeoutMs: sidecarMs }).catch(() => null)
           }
           stamps[id] = { cursor: Number(cursors[id]) || 0, at: Date.now(), graph: true }
           stampsDirty = true
@@ -601,12 +691,14 @@ export function createSessionIngest(opts) {
       if (typeof startFileIngest === 'function') {
         for (const fileCwd of fileCwds.slice(0, fileBudget)) startFileIngest(fileCwd)
       }
+      for (const fileCwd of fileCwds) void pingLowRiskAutoFile(fileCwd)
       last = { at: Date.now(), ok: !error, sessions, ingested, skipped, error }
     } catch (err) {
       error = err instanceof Error ? err.message : String(err)
       last = { at: Date.now(), ok: false, sessions, ingested, skipped, error }
     } finally {
       running = false
+      startedAt = 0
     }
     return last
   }
@@ -649,7 +741,14 @@ export function createSessionIngest(opts) {
   }
 
   function kick() {
-    if (running) return { ok: true, started: false, ...snapshot() }
+    if (running) {
+      if (startedAt && Date.now() - startedAt > deadlineMs + stepMs) {
+        running = false
+        last = { ...last, at: Date.now(), error: last.error || 'STALE_TICK' }
+      } else {
+        return { ok: true, started: false, ...snapshot() }
+      }
+    }
     void tick({ force: true })
     return { ok: true, started: true, ...snapshot() }
   }

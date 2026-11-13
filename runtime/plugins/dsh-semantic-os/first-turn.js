@@ -7,9 +7,9 @@
 import { loadSpokenSeed, speechHasConnectorLookup, speechHasSpokenRole } from '../dsh-lan-assist/live-write-intent.mjs'
 import { speechHoldsWorkstationWrite } from '../dsh-lan-assist/slots.js'
 import { listBridgePeers } from './bridge.js'
-import { fetchOpenTodos, formatCoreBrief, isContinueQuery, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
+import { fetchFiledRules, fetchOpenTodos, fillSessionTitles, formatCoreBrief, isContinueQuery, mergeSessionLists, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
 
-export { fetchOpenTodos }
+export { fetchFiledRules, fetchOpenTodos, fillSessionTitles, mergeSessionLists }
 
 const SEARCH_INTENTS = new Set(['查询', '出处', '催待办'])
 const CARD_CAP = 1600
@@ -102,6 +102,17 @@ export function sessionIdFromSession(session) {
   return String(session.id || session.sessionId || header.id || header.sessionId || '').trim()
 }
 
+export function assembleAgentPreset(context) {
+  const agent = context && context.agent
+  const session = (agent && agent.session) || (context && context.session) || null
+  const header = session && session.header && typeof session.header === 'object' ? session.header : {}
+  return String(
+    (agent && (agent.agentPreset || agent.preset))
+    || header.agentPreset
+    || '',
+  ).trim()
+}
+
 async function resolveBrief(opts, context, sessionId) {
   const session = (context && context.agent && context.agent.session) || (context && context.session) || null
   const cwd = String((session && session.header && session.header.cwd) || (opts && opts.cwd) || '').trim()
@@ -109,11 +120,11 @@ async function resolveBrief(opts, context, sessionId) {
   if (opts && typeof opts.listSessions === 'function') {
     try { rows = await opts.listSessions(cwd, context) } catch { rows = [] }
   }
-  const lastSession = pickLastSession(rows, { cwd, currentId: sessionId })
   let todos = []
   if (opts && typeof opts.listTodos === 'function') {
     try { todos = await opts.listTodos(cwd, context) } catch { todos = [] }
   }
+  const lastSession = pickLastSession(rows, { cwd, currentId: sessionId, todos })
   let peers = []
   if (opts && typeof opts.listBridgePeers === 'function') {
     try { peers = await opts.listBridgePeers(cwd, context) } catch { peers = [] }
@@ -122,7 +133,14 @@ async function resolveBrief(opts, context, sessionId) {
       peers = await listBridgePeers(cwd, process.env.DSH_HOME || process.env.FDE_DSH_HOME)
     } catch { peers = [] }
   }
-  return { cwd, lastSession, todos, peers }
+  let filedRules = []
+  const fileOpts = { todos, lastTitle: lastSession && lastSession.title }
+  if (opts && typeof opts.listFiledRules === 'function') {
+    try { filedRules = await opts.listFiledRules(cwd, fileOpts) } catch { filedRules = [] }
+  } else if (cwd) {
+    try { filedRules = await fetchFiledRules(cwd, fileOpts) } catch { filedRules = [] }
+  }
+  return { cwd, lastSession, todos, peers, filedRules }
 }
 
 export function installFirstTurn(ctx, opts) {
@@ -131,6 +149,8 @@ export function installFirstTurn(ctx, opts) {
   if (!ctx || typeof ctx.on !== 'function' || !search) return cache
 
   ctx.on('session/event', (session, event) => {
+    const header = session && session.header && typeof session.header === 'object' ? session.header : {}
+    if (String(header.agentPreset || '').trim() === 'fde-briefing') return
     const id = sessionIdFromSession(session)
     const text = normalizeFirstTurnSpeech(userSpeechFromEvent(event))
     if (!id || !text || isInjectedUserSpeech(text)) return
@@ -138,6 +158,9 @@ export function installFirstTurn(ctx, opts) {
   })
 
   ctx.on('system-prompt/assemble', async (_assembly, context, next) => {
+    if (assembleAgentPreset(context) === 'fde-briefing') {
+      return typeof next === 'function' ? await next() : _assembly
+    }
     const assembled = typeof next === 'function' ? await next() : _assembly
     const pack = assembled && typeof assembled === 'object' ? assembled : { sections: [] }
     const sessionId = sessionIdFromAssembleContext(context) || sessionIdFromSession(context && context.agent && context.agent.session)
@@ -181,13 +204,23 @@ export function clipHit(row) {
   return `- ${id}${marks ? ` · ${marks}` : ''}\n  ${snippet}`
 }
 
-export function formatHandoff({ intent, tool, hits, sessionId }) {
+export function formatHandoff({ intent, tool, hits, sessionId, filedRules }) {
   const lines = [
     '本回合 Host 已代调（工具回执，不是把图灌进 system）。',
     `intent: ${intent || ''}`,
     `tool: ${tool || '（不开检索）'}`,
   ]
   if (sessionId) lines.push(`session: ${sessionId}`)
+  const rules = Array.isArray(filedRules) ? filedRules.filter((row) => row && row.label) : []
+  if (rules.length) {
+    lines.push('已入档规则（待审不是依据）：')
+    for (const row of rules.slice(0, 3)) {
+      const id = String(row.id || '').trim()
+      const cue = String(row.label || '').replace(/\s+/g, ' ').trim()
+      if (!cue) continue
+      lines.push(id ? `- ${id} ${cue}` : `- ${cue}`)
+    }
+  }
   const packed = Array.isArray(hits) ? hits.map(clipHit).filter(Boolean).slice(0, HIT_CAP) : []
   if (packed.length) {
     lines.push('hits:')
@@ -292,7 +325,11 @@ export function createFirstTurnCache() {
     map.set(id, { speech: line, card: '', wait })
     try {
       const flipped = await flipFirstTurn({ text: line, search, brief })
-      const card = formatHandoff({ ...flipped, sessionId: id })
+      const card = formatHandoff({
+        ...flipped,
+        sessionId: id,
+        filedRules: isContinueQuery(line) ? (brief && brief.filedRules) : [],
+      })
       map.set(id, { speech: line, card, wait: null })
       settle(card)
       return card

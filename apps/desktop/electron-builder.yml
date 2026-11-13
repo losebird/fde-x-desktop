@@ -12,6 +12,7 @@ extraResources:
     filter:
       - "**/*"
       - "!**/.pack-work/**"
+afterPack: ./scripts/after-pack-adhoc-sign.mjs
 mac:
   icon: build/icon.png
   target:

@@ -83,44 +83,68 @@ function focusMainWindow() {
   mainWindow.focus()
 }
 
+let lastNotice: Notification | null = null
+
+function appleScriptBanner(title: string, body: string) {
+  if (process.platform !== 'darwin') return
+  const heading = String(title || 'FDE-X').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  const text = String(body || '').replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+  execFile('osascript', ['-e', `display notification "${text}" with title "${heading}" sound name "Glass"`], () => undefined)
+}
+
 function showDesktopNotice(payload: OsNoticePayload) {
   const title = String(payload.title || 'FDE-X')
   const body = String(payload.body || '')
-  playGlass()
-  const unfocused = Boolean(mainWindow && !mainWindow.isDestroyed() && !mainWindow.isFocused())
-  if (unfocused) app.dock?.bounce('informational')
-  if (!Notification.isSupported()) return
-  const icon = noticeIconPath()
-  const notice = new Notification({
-    title,
-    body,
-    silent: true,
-    ...(icon ? { icon } : {}),
-  })
-  notice.on('click', () => {
-    focusMainWindow()
-    if (!mainWindow || mainWindow.isDestroyed()) return
-    mainWindow.webContents.send('fde:notice-open', {
-      id: payload.id || '',
-      href: payload.href || '',
-      sessionId: payload.sessionId || '',
-      cwd: payload.cwd || '',
-      peerId: payload.peerId || '',
-      groupId: payload.groupId || '',
+  const focused = Boolean(mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused())
+  if (!focused) app.dock?.bounce('informational')
+  let presented = false
+  if (Notification.isSupported()) {
+    const icon = noticeIconPath()
+    const notice = new Notification({
+      title,
+      body,
+      silent: true,
+      ...(icon ? { icon } : {}),
     })
-  })
-  notice.on('failed', (_event, error) => {
-    console.warn('fde_notify_failed', error)
-    try {
-      const log = pack
-        ? join(pack.roots.base, 'notify-failed.log')
-        : join(app.getPath('userData'), 'notify-failed.log')
-      appendFileSync(log, `${new Date().toISOString()} ${error}\n`)
-    } catch {
-      /* diagnostic only */
-    }
-  })
-  notice.show()
+    lastNotice = notice
+    notice.on('click', () => {
+      focusMainWindow()
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      mainWindow.webContents.send('fde:notice-open', {
+        id: payload.id || '',
+        href: payload.href || '',
+        sessionId: payload.sessionId || '',
+        cwd: payload.cwd || '',
+        peerId: payload.peerId || '',
+        groupId: payload.groupId || '',
+      })
+    })
+    notice.on('show', () => {
+      presented = true
+    })
+    notice.on('failed', (_event, error) => {
+      console.warn('fde_notify_failed', error)
+      try {
+        const log = pack
+          ? join(pack.roots.base, 'notify-failed.log')
+          : join(app.getPath('userData'), 'notify-failed.log')
+        appendFileSync(log, `${new Date().toISOString()} ${error}\n`)
+      } catch {
+        /* diagnostic only */
+      }
+      if (!presented) appleScriptBanner(title, body)
+    })
+    notice.show()
+  }
+  // Ad-hoc UN often fails; macOS also suppresses UN banners while FDE-X is frontmost.
+  if (focused || !Notification.isSupported()) {
+    appleScriptBanner(title, body)
+  } else {
+    playGlass()
+    setTimeout(() => {
+      if (!presented) appleScriptBanner(title, body)
+    }, 600)
+  }
 }
 
 function bffPortFile(base: string) {
