@@ -4,6 +4,42 @@
  */
 
 export const CORE_BRIEF_CAP = 400
+export const BRIEF_TTL_MS = 120_000
+
+export function createBriefCache({ ttlMs = BRIEF_TTL_MS, now = () => Date.now() } = {}) {
+  const map = new Map()
+  function keyOf(cwd, sessionId) {
+    return `${String(cwd || '').trim()}::${String(sessionId || '').trim()}`
+  }
+  async function load(cwd, sessionId, loader) {
+    const key = keyOf(cwd, sessionId)
+    const stamp = now()
+    const hit = map.get(key)
+    if (hit && hit.value && stamp - hit.at < ttlMs) return hit.value
+    if (hit && hit.wait) return hit.wait
+    let settle
+    const wait = new Promise((resolve, reject) => {
+      settle = { resolve, reject }
+    })
+    map.set(key, { at: (hit && hit.at) || 0, value: hit && hit.value, wait })
+    try {
+      const value = await loader()
+      map.set(key, { at: now(), value, wait: null })
+      settle.resolve(value)
+      return value
+    } catch (error) {
+      if (hit && hit.value) {
+        map.set(key, { at: hit.at, value: hit.value, wait: null })
+        settle.resolve(hit.value)
+        return hit.value
+      }
+      map.delete(key)
+      settle.reject(error)
+      throw error
+    }
+  }
+  return { load, keyOf }
+}
 
 const CONTINUE_MARK = /接着干|接着处理|继续处理|还没做完|未完成|上次没做完|上次还没做完/
 

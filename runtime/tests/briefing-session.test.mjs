@@ -53,7 +53,7 @@ test('a listed briefing session without blank metadata is dirty', () => {
   }), true)
 })
 
-test('resolveBriefingSession reuses a clean workspace fde-briefing session', async () => {
+test('resolveBriefingSession throws away leftover clerks and creates a new one', async () => {
   const calls = []
   const sessionId = await resolveBriefingSession({
     call: async (endpoint, args) => {
@@ -67,11 +67,39 @@ test('resolveBriefingSession reuses a clean workspace fde-briefing session', asy
           }],
         }
       }
+      if (endpoint === 'workspace/archiveSession') return { archivedSessionIds: [args.request.sessionId] }
+      if (endpoint === 'session/create') return { sessionId: 'brief-new' }
       throw new Error(endpoint)
     },
   }, '/ws/a')
-  assert.equal(sessionId, 'brief-1')
-  assert.deepEqual(calls.map((row) => row.endpoint), ['session/list'])
+  assert.equal(sessionId, 'brief-new')
+  assert.deepEqual(calls.map((row) => row.endpoint), ['session/list', 'workspace/archiveSession', 'session/create'])
+  assert.equal(calls[1].args.request.sessionId, 'brief-1')
+})
+
+test('resolveBriefingSession creates again when Host recycles a leftover id', async () => {
+  let creates = 0
+  const sessionId = await resolveBriefingSession({
+    call: async (endpoint, args) => {
+      if (endpoint === 'session/list') {
+        return {
+          items: [{
+            sessionId: 'brief-ghost',
+            cwd: '/ws/a',
+            projections: { values: { agentPreset: 'fde-briefing', sessionListMetadata: { blank: true } } },
+          }],
+        }
+      }
+      if (endpoint === 'workspace/archiveSession') return { archivedSessionIds: [args.request.sessionId] }
+      if (endpoint === 'session/create') {
+        creates += 1
+        return { sessionId: creates === 1 ? 'brief-ghost' : 'brief-fresh' }
+      }
+      throw new Error(endpoint)
+    },
+  }, '/ws/a')
+  assert.equal(creates, 2)
+  assert.equal(sessionId, 'brief-fresh')
 })
 
 test('resolveBriefingSession does not delete a normal AI session in the same workspace', async () => {
@@ -126,9 +154,9 @@ test('resolveBriefingSession deletes a dirty briefing session and opens a clean 
     },
   }, '/ws/a')
   assert.equal(sessionId, 'brief-new')
-  assert.deepEqual(calls.map((row) => row.endpoint), ['session/list', 'session/create', 'workspace/archiveSession'])
-  assert.equal(calls[2].args.request.sessionId, 'brief-old')
-  assert.equal(calls[2].args.request.stopActivity, true)
+  assert.deepEqual(calls.map((row) => row.endpoint), ['session/list', 'workspace/archiveSession', 'session/create'])
+  assert.equal(calls[1].args.request.sessionId, 'brief-old')
+  assert.equal(calls[1].args.request.stopActivity, true)
 })
 
 test('resolveBriefingSession creates an fde-briefing session when none exists', async () => {
@@ -202,7 +230,8 @@ test('resolveBriefingSession stages enabled mcp servers for a reused session and
           }],
         }
       }
-      if (endpoint === 'session/create') return { sessionId: 'session-brief-reuse' }
+      if (endpoint === 'workspace/archiveSession') return { archivedSessionIds: ['session-brief-old'] }
+      if (endpoint === 'session/create') return { sessionId: 'session-brief-fresh' }
       throw new Error(endpoint)
     },
   }
@@ -213,13 +242,13 @@ test('resolveBriefingSession stages enabled mcp servers for a reused session and
   ]
   try {
     const sessionId = await resolveBriefingSession(aiRuntime, '/ws/a', sections)
-    assert.equal(sessionId, 'session-brief-old')
-    const file = join(home, 'run', 'briefing-allow', 'session-brief-old.json')
+    assert.equal(sessionId, 'session-brief-fresh')
+    const file = join(home, 'run', 'briefing-allow', 'session-brief-fresh.json')
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).servers, ['mail'])
     stageBriefingSessionAllow(aiRuntime, sessionId, sections, ['QQ-Mail'])
     assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).servers, ['mail', 'QQ-Mail'])
     const nextId = await resolveBriefingSession(aiRuntime, '/ws/a', [])
-    assert.equal(nextId, 'session-brief-old')
+    assert.equal(nextId, 'session-brief-fresh')
     const nextFile = join(home, 'run', 'briefing-allow', `${nextId}.json`)
     assert.deepEqual(JSON.parse(readFileSync(nextFile, 'utf8')).servers, [])
     discardBriefingSessionAllow(aiRuntime, sessionId)

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+  BRIEF_TTL_MS,
   CORE_BRIEF_CAP,
   clipBrief,
+  createBriefCache,
   fetchFiledRules,
   fetchOpenTodos,
   fillSessionTitles,
@@ -260,4 +262,35 @@ test('installFirstTurn injects a capped continue brief and rewrites continue sea
   assert.match(card.text, /已入档规则（待审不是依据）/)
   assert.match(card.text, /memory:ok 发票型无数量列/)
   assert.equal(core.text.includes('已入档规则'), false)
+})
+
+test('continue brief cache reuses listTodos within ttl', async () => {
+  let now = 1_000
+  const cache = createBriefCache({ ttlMs: 120_000, now: () => now })
+  let todos = 0
+  const listeners = {}
+  installFirstTurn({ on(name, fn) { listeners[name] = fn } }, {
+    briefCache: cache,
+    search: async () => ({ results: [] }),
+    listSessions: async () => [{ id: 'sess-now', cwd: '/ws', title: '现在', updatedAt: 2 }],
+    listTodos: async () => {
+      todos += 1
+      return [{ title: '补开票' }]
+    },
+    listFiledRules: async () => [],
+    listBridgePeers: async () => [],
+  })
+  const session = { id: 'sess-now', header: { cwd: '/ws', id: 'sess-now' } }
+  const assemble = () => listeners['system-prompt/assemble'](
+    { sections: [] },
+    { agent: { session } },
+    async () => ({ sections: [] }),
+  )
+  await assemble()
+  await assemble()
+  assert.equal(todos, 1)
+  now += 120_001
+  await assemble()
+  assert.equal(todos, 2)
+  assert.ok(BRIEF_TTL_MS >= 60_000)
 })

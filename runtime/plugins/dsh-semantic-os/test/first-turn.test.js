@@ -9,6 +9,7 @@ import {
   flipFirstTurn,
   formatHandoff,
   installFirstTurn,
+  isCasualOpener,
   isInjectedUserSpeech,
   needsSearch,
   normalizeFirstTurnSpeech,
@@ -23,12 +24,32 @@ test('routeIntent matches the python keyword table', () => {
   assert.deepEqual(routeIntent('要不要过 PO-12'), { intent: '拍板', tool: 'find_precedents' })
   assert.deepEqual(routeIntent('帮我把 PO-12 过账'), { intent: '业务动作', tool: 'brief_for_decision' })
   assert.deepEqual(routeIntent('哈哈随便聊聊'), { intent: '闲聊', tool: '' })
+  assert.deepEqual(routeIntent('你好'), { intent: '闲聊', tool: '' })
+  assert.deepEqual(routeIntent('在吗'), { intent: '闲聊', tool: '' })
+  assert.deepEqual(routeIntent('好的'), { intent: '闲聊', tool: '' })
+  assert.equal(isCasualOpener('你好！'), true)
+  assert.equal(isCasualOpener('帮我'), true)
+  assert.equal(isCasualOpener('昨天下午聊了啥'), false)
   assert.deepEqual(routeIntent('这个项目里上次怎么定的'), { intent: '查询', tool: 'search_text' })
   assert.deepEqual(routeIntent('之前定了哪些事情'), { intent: '查询', tool: 'search_text' })
   assert.deepEqual(routeIntent('过账试探当时怎么记的'), { intent: '查询', tool: 'search_text' })
   assert.equal(needsSearch('查询'), true)
   assert.equal(needsSearch('拍板'), false)
   assert.equal(needsSearch('闲聊'), false)
+})
+
+test('casual first-turn skips search_text', async () => {
+  let n = 0
+  const flipped = await flipFirstTurn({
+    text: '你好',
+    search: async () => {
+      n += 1
+      return { results: [{ node: { id: 'session:x:1', content: 'should not run' } }] }
+    },
+  })
+  assert.equal(flipped.intent, '闲聊')
+  assert.equal(flipped.tool, '')
+  assert.equal(n, 0)
 })
 
 test('拍板 first-turn names find_precedents and does not search_text', async () => {

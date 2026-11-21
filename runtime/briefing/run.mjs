@@ -328,7 +328,7 @@ async function runBriefingUnlocked(deps, input, workspaceCwd, mode, hooks = {}) 
         }
       }
       if (sessionId) await disposeBriefingSession(aiRuntime, sessionId)
-    } else if (enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
+    } else if (mode === 'full' && enabled.some((s) => (s.type === 'mcp' || s.type === 'ai') && s.enabled)) {
       for (const def of enabled.filter((s) => s.type === 'mcp' || s.type === 'ai')) {
         sections.push({
           id: def.id,

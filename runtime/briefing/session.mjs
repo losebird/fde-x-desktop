@@ -130,22 +130,27 @@ export async function resolveBriefingSession(aiRuntime, cwd, sections, emit) {
     && sameWorkspaceCwd(rowCwd(row), workspaceCwd)
     && !row.archived
   ))
-  const reusable = mine.find((row) => !sessionIsRunning(row) && !briefingDirty(row))
-  let sessionId = reusable ? String(reusable.sessionId || reusable.id || '') : ''
-  if (!sessionId) {
+  const leftoverIds = new Set(
+    mine.map((row) => String(row.sessionId || row.id || '').trim()).filter(Boolean),
+  )
+  for (const id of leftoverIds) await disposeBriefingSession(aiRuntime, id)
+
+  async function createClerk() {
     const created = await aiRuntime.call('session/create', {
       request: { cwd: workspaceCwd, agentPreset: BRIEFING_PRESET },
     })
-    sessionId = String(created?.sessionId || '')
+    return String(created?.sessionId || '')
+  }
+
+  let sessionId = await createClerk()
+  if (sessionId && leftoverIds.has(sessionId)) {
+    await disposeBriefingSession(aiRuntime, sessionId)
+    sessionId = await createClerk()
   }
   if (!sessionId) {
     const error = new Error('早报会话没有建成')
     error.code = 'briefing_session_missing'
     throw error
-  }
-  for (const row of mine) {
-    const id = String(row.sessionId || row.id || '')
-    if (id && id !== sessionId) await disposeBriefingSession(aiRuntime, id)
   }
   if (Array.isArray(sections)) stageBriefingSessionAllow(aiRuntime, sessionId, sections)
   invalidateHostSessionList()

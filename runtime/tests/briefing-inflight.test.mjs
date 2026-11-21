@@ -163,6 +163,28 @@ test('a generate without a live AI session fails closed and the next generate st
   db.close()
 })
 
+test('internal-only does not stamp AI or MCP failure errors', async () => {
+  const path = '/tmp/fde-x-briefing-internal-quiet.sqlite'
+  await rm(path, { force: true }).catch(() => undefined)
+  const db = makeDb(path)
+  registerWorkspace(db, wsCwd)
+  getOrCreateDefinition(db, wsCwd)
+  const aiRuntime = {
+    status: () => ({ connected: true }),
+    lanAssist: async () => ({ requests: [] }),
+    semanticOs: async () => ({ cards: [] }),
+    call: async (endpoint) => {
+      if (endpoint === 'session/list') return { items: [{ sessionId: 'sess-a', cwd: wsCwd, origin: 'user', updatedAt: 2, running: false }] }
+      return {}
+    },
+  }
+  const result = await runBriefing({ db, aiRuntime }, { workspaceCwd: wsCwd, mode: 'internal-only' })
+  const sections = result.briefing?.sections || []
+  assert.equal(sections.some((row) => row.type === 'ai' || row.type === 'mcp'), false)
+  assert.equal(sections.some((row) => String(row.error || '').includes('会话')), false)
+  db.close()
+})
+
 test('onOpen full skips the canvas-selected session', async () => {
   const path = '/tmp/fde-x-briefing-canvas.sqlite'
   await rm(path, { force: true }).catch(() => undefined)

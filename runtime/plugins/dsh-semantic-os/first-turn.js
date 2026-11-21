@@ -7,7 +7,7 @@
 import { loadSpokenSeed, speechHasConnectorLookup, speechHasSpokenRole } from '../dsh-lan-assist/live-write-intent.mjs'
 import { speechHoldsWorkstationWrite } from '../dsh-lan-assist/slots.js'
 import { listBridgePeers } from './bridge.js'
-import { fetchFiledRules, fetchOpenTodos, fillSessionTitles, formatCoreBrief, isContinueQuery, mergeSessionLists, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
+import { createBriefCache, fetchFiledRules, fetchOpenTodos, fillSessionTitles, formatCoreBrief, isContinueQuery, mergeSessionLists, pickLastSession, rewriteContinueQuery } from './continue-brief.js'
 
 export { fetchFiledRules, fetchOpenTodos, fillSessionTitles, mergeSessionLists }
 
@@ -16,6 +16,16 @@ const CARD_CAP = 1600
 const HIT_CAP = 4
 const SNIP = 180
 const spokenSeed = loadSpokenSeed()
+const GREETING = /^(你好|您好|嗨+|哈喽|哈囉|在吗|在嘛|早上好|晚上好|下午好|早安|晚安|谢谢|多謝|好的|嗯+|ok|okay|hello|hi|hey)([！!。.?？~～、，\s]*)$/i
+const LOOKUP_MARK = /[?？]|什么|怎么|哪些|哪次|哪个|为什么|为何|多少|谁|何时|啥|吗|呢|查(一?下)?|搜(一?下)?|找(一?下)?|记得|上次|之前|出处|待办|接着|继续|定了|拍板/
+
+export function isCasualOpener(text) {
+  const raw = String(text || '').trim()
+  if (!raw) return true
+  if (GREETING.test(raw)) return true
+  const compact = raw.replace(/\s+/g, '')
+  return compact.length <= 4 && !LOOKUP_MARK.test(raw)
+}
 
 function hasRole(text, role) {
   return speechHasSpokenRole(text, spokenSeed, role)
@@ -34,6 +44,7 @@ export function routeIntent(text) {
   if (hasRole(raw, '过账') && hasRole(raw, '过账帮忙')) return { intent: '业务动作', tool: 'brief_for_decision' }
   if (hasRole(raw, '催待办')) return { intent: '催待办', tool: 'search_text' }
   if (hasRole(raw, '闲聊')) return { intent: '闲聊', tool: '' }
+  if (isCasualOpener(raw)) return { intent: '闲聊', tool: '' }
   return { intent: '查询', tool: 'search_text' }
 }
 
@@ -145,6 +156,7 @@ async function resolveBrief(opts, context, sessionId) {
 
 export function installFirstTurn(ctx, opts) {
   const cache = createFirstTurnCache()
+  const briefCache = (opts && opts.briefCache) || createBriefCache()
   const search = opts && typeof opts.search === 'function' ? opts.search : null
   if (!ctx || typeof ctx.on !== 'function' || !search) return cache
 
@@ -166,7 +178,9 @@ export function installFirstTurn(ctx, opts) {
     const sessionId = sessionIdFromAssembleContext(context) || sessionIdFromSession(context && context.agent && context.agent.session)
     const events = eventsFromAssembleContext(context)
     const speech = resolveFirstTurnSpeech({ events, remembered: cache.speechOf(sessionId) })
-    const brief = await resolveBrief(opts, context, sessionId)
+    const session = (context && context.agent && context.agent.session) || (context && context.session) || null
+    const cwd = String((session && session.header && session.header.cwd) || (opts && opts.cwd) || '').trim()
+    const brief = await briefCache.load(cwd, sessionId, () => resolveBrief(opts, context, sessionId))
     const sections = Array.isArray(pack.sections) ? pack.sections.slice() : []
     const core = formatCoreBrief(brief)
     if (core && !sections.some((row) => row && row.name === 'tool:dsh-semantic-os-continue')) {
