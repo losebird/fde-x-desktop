@@ -33,6 +33,13 @@ async function withHome(fn) {
   }
 }
 
+test('windows copy uses robocopy and skips full tree hash', async () => {
+  const raw = await readFile(new URL('../runtime-install.js', import.meta.url), 'utf8')
+  assert.match(raw, /robocopy/)
+  assert.match(raw, /winFsPath/)
+  assert.match(raw, /verifyFiles: process\.platform !== 'win32'/)
+})
+
 test('runtime installer verifies, atomically activates, and resolves a runtime', async () => {
   await withHome(async () => {
     const source = await makeRuntime(await mkdtemp(join(tmpdir(), 'dsos-runtime-source-')))

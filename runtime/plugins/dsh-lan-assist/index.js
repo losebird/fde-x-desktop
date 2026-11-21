@@ -369,8 +369,10 @@ export async function apply(ctx, config) {
       if (relay && typeof relay.close === 'function') await relay.close()
       const self = (await store.get()).self
       const st = relay && typeof relay.status === 'function' ? relay.status() : { configured: false }
-      if (relay && st.configured && !st.error && self && self.id && typeof relay.listen === 'function') {
+      if (relay && st.configured && self && self.id && typeof relay.listen === 'function') {
         stopRelay = await relay.listen(self.id, (frame) => onLanFrame(frame, { remote: 'relay' }))
+      } else if (relay && st.configured && typeof relay.connect === 'function') {
+        await relay.connect()
       }
     }
     void (async () => {

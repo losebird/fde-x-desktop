@@ -118,6 +118,9 @@ export async function bootLanAssistBff(adapters = {}) {
     relayStatus: () => (relay && typeof relay.status === 'function'
       ? relay.status()
       : { configured: false, connected: false, error: '' }),
+    onRelayChange: async () => {
+      if (relay && typeof relay.connect === 'function') await relay.connect()
+    },
     publicDoors: () => publicDoors(port),
     loadVocab: (workspace) => loadVocabFn(workspace),
     saveVocab: (workspace, concept) => saveVocabFn(workspace, concept),

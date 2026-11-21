@@ -54,8 +54,10 @@ export function probeLauncherVersion(bin, timeoutMs = 4000) {
   return String(result.stdout || '').trim().length > 0
 }
 
-export function nodeDistPresent(root, platform = process.platform) {
+export function nodeDistPresent(root, platform = process.platform, options = {}) {
   const bins = nodeDistBins(root, platform)
   if (!bins.node || !bins.npm || !bins.npx) return false
+  const probe = options.probe ?? platform === process.platform
+  if (!probe) return true
   return probeLauncherVersion(bins.npm) && probeLauncherVersion(bins.npx)
 }

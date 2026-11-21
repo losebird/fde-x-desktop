@@ -8,6 +8,7 @@ import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import { randomHex } from './crypto.js'
 import { assistHome, CODE_TTL_MS, RELAY_INLINE_MAX, RELAY_OBJECT_QUOTA } from './home.js'
+import { connectNats } from './nats-connect.js'
 
 let storedUrl = ''
 let storedCreds = ''
@@ -222,27 +223,17 @@ export function createNatsTransport(opts = {}) {
       if (typeof connect === 'function') {
         client = await connect(nextUrl, conf)
       } else {
-        let mod
-        try {
-          mod = await import('nats')
-        } catch {
-          dependencyError = 'NATS_DEPENDENCY_MISSING'
-          connected = false
-          return null
-        }
-        if (!mod || typeof mod.connect !== 'function') {
-          dependencyError = 'NATS_DEPENDENCY_MISSING'
-          connected = false
-          return null
-        }
         dependencyError = ''
-        if (conf.creds && typeof mod.credsAuthenticator === 'function') {
-          conf.authenticator = mod.credsAuthenticator(conf.creds)
-          delete conf.creds
-        }
-        client = await mod.connect(conf)
+        const loaded = await connectNats(conf, { url: nextUrl, importModule: opts.importModule })
+        client = loaded.client
       }
-    } catch {
+    } catch (error) {
+      const code = String((error && error.code) || '')
+      dependencyError = code === 'NATS_WS_MISSING' || code === 'NATS_DEPENDENCY_MISSING'
+        ? code
+        : (code === 'TIMEOUT' || code === 'CONNECTION_TIMEOUT' || code === 'CONNECTION_REFUSED'
+          ? code
+          : 'UNREACHABLE')
       client = null
       connected = false
       return null
@@ -261,6 +252,7 @@ export function createNatsTransport(opts = {}) {
       if (dependencyError) row.error = dependencyError
       return row
     },
+    connect: ensure,
     async send(_door, frame) {
       if (!frame || frame.type === 'hello') return { ok: false, error: 'NO_RELAY_PAIR' }
       const subject = inboxSubject(frame.to || (String(frame.type || '').startsWith('pair.') ? frame.to : ''))

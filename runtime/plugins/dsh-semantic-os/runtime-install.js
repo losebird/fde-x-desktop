@@ -1,8 +1,48 @@
+import { execFile } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve as resolvePath } from 'node:path'
+import { promisify } from 'node:util'
 import { resolveBundledRuntime, runtimeKey } from './runtime-bundle.js'
 import { RUNTIME_VERSION } from './version.js'
+
+const execFileAsync = promisify(execFile)
+
+function winFsPath(p) {
+  if (process.platform !== 'win32') return p
+  const abs = resolvePath(p)
+  if (abs.startsWith('\\\\?\\')) return abs
+  if (abs.startsWith('\\\\')) return `\\\\?\\UNC\\${abs.slice(2)}`
+  return `\\\\?\\${abs}`
+}
+
+async function copyRuntimeTree(source, dest) {
+  if (process.platform === 'win32') {
+    await mkdir(dest, { recursive: true })
+    try {
+      await execFileAsync('robocopy', [
+        source,
+        dest,
+        '/E',
+        '/COPY:DAT',
+        '/R:1',
+        '/W:1',
+        '/MT:4',
+        '/NFL',
+        '/NDL',
+        '/NJH',
+        '/NJS',
+        '/NP',
+      ])
+    } catch (error) {
+      const code = Number(error && error.code)
+      if (!(code >= 0 && code < 8)) throw error
+    }
+    return
+  }
+  await cp(source, dest, { recursive: true, dereference: false, force: false })
+}
 
 function dshHome() {
   return process.env.DSH_HOME || join(homedir(), '.dsh')
@@ -44,12 +84,21 @@ export async function installRuntimeFromDirectory(source, options = {}) {
   const verifiedSource = await resolveBundledRuntime({ platform, arch, runtimeRoot: source, verifyFiles: false })
   if (!verifiedSource.ok) return verifiedSource
   const finalRoot = installedRuntimeRoot(platform, arch, verifiedSource.manifest.runtimeVersion)
-  const staging = `${finalRoot}.staging-${process.pid}-${Date.now()}`
+  const staging = join(runtimeStoreRoot(), 'st')
   await mkdir(dirname(finalRoot), { recursive: true })
   try {
-    await rm(staging, { recursive: true, force: true })
-    await cp(source, staging, { recursive: true, dereference: false, force: false })
-    const staged = await resolveBundledRuntime({ platform, arch, runtimeRoot: staging, verifyFiles: true })
+    await rm(winFsPath(staging), { recursive: true, force: true })
+    await copyRuntimeTree(source, staging)
+    const pythonRel = String(verifiedSource.manifest.python || '')
+    if (process.platform === 'win32' && pythonRel && !existsSync(join(staging, pythonRel))) {
+      return { ok: false, error: 'RUNTIME_PYTHON_MISSING' }
+    }
+    const staged = await resolveBundledRuntime({
+      platform,
+      arch,
+      runtimeRoot: staging,
+      verifyFiles: process.platform !== 'win32',
+    })
     if (!staged.ok) return staged
     const previous = `${finalRoot}.previous-${Date.now()}`
     let hadPrevious = false

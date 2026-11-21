@@ -2056,11 +2056,31 @@ export class RuntimeApi {
   }
 
   async deleteWorkspaceFile(name: string, sessionId?: string, signal?: AbortSignal): Promise<{ path: string }> {
-    const query = new URLSearchParams({ name })
+    const query = new URLSearchParams({ path: name, name })
     if (sessionId) query.set('sessionId', sessionId)
     const result = await this.request<{ data: { path: string } }>(`/api/v1/files?${query.toString()}`, {
       method: 'DELETE',
       signal,
+    })
+    return result.data
+  }
+
+  async moveWorkspaceFile(input: { from: string; to: string; sessionId?: string }, signal?: AbortSignal): Promise<{ path: string; from: string }> {
+    const result = await this.request<{ data: { path: string; from: string } }>('/api/v1/files/move', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    })
+    return result.data
+  }
+
+  async copyWorkspaceFile(input: { from: string; to: string; sessionId?: string }, signal?: AbortSignal): Promise<{ path: string; from: string }> {
+    const result = await this.request<{ data: { path: string; from: string } }>('/api/v1/files/copy', {
+      method: 'POST',
+      signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     })
     return result.data
   }

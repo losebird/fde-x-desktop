@@ -1,10 +1,11 @@
 // 文件模块:树形侧栏 + 列表 + 多种类型预览(image/md/code/json/csv/pdf)
-import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react'
+import { useState, useMemo, useEffect, useRef, type DragEvent, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Folder, FolderOpen, FileText, Image as ImageIcon, FileCode, FileJson,
   FileSpreadsheet, FileAudio, FileVideo, File as FilePdf, Star, ChevronRight, Search,
   Upload, Plus, Trash2, ArrowLeft, Download, Eye, MoreHorizontal, Hash, Send,
+  Pencil, Copy, Scissors, ClipboardPaste,
 } from 'lucide-react'
 import clsx from 'clsx'
 import Markdown from 'react-markdown'
@@ -20,6 +21,23 @@ import { attachToCurrentAi } from '@/lib/current-turn'
 import { consumeFilePick } from '@/lib/app-platform'
 import { useWhenCoreConnects } from '@/components/settings/core-connection'
 import { lastModuleBag, rememberModuleBag } from '@/lib/module-catalog-cache'
+import {
+  baseRel,
+  isSelfOrDescendant,
+  joinRel,
+  nextCopyName,
+  parentIdOf,
+  parentRel,
+  remapRel,
+} from '../../runtime/files-rel.mjs'
+
+const MOVE_MIME = 'application/x-fde-move'
+
+function trapMoveDrag(event: DragEvent) {
+  if (![...event.dataTransfer.types].includes(MOVE_MIME)) return
+  event.preventDefault()
+  event.stopPropagation()
+}
 
 function kindFromName(name: string): FileNode['kind'] {
   const lower = name.toLowerCase()
@@ -676,7 +694,20 @@ export default function Files() {
   const [sortKey, setSortKey] = useState<'name' | 'updatedAt' | 'size'>('updatedAt')
   const [showStarred, setShowStarred] = useState(false)
   const [fileActions, setFileActions] = useState<string[]>([])
+  const [folderDraft, setFolderDraft] = useState<string | null>(null)
+  const [folderSaving, setFolderSaving] = useState(false)
+  const [renameId, setRenameId] = useState<string | null>(null)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [pickedIds, setPickedIds] = useState<string[]>([])
+  const [clipboard, setClipboard] = useState<{ ids: string[]; mode: 'cut' | 'copy' } | null>(null)
+  const [lastOp, setLastOp] = useState<{ mode: 'cut' | 'copy'; items: Array<{ from: string; to: string }> } | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; name: string; kind: FileNode['kind'] } | null>(null)
+  const [manageBusy, setManageBusy] = useState(false)
+  const lastPickedId = useRef<string | null>(null)
   const uploadRef = useRef<HTMLInputElement>(null)
+  const folderInputRef = useRef<HTMLInputElement>(null)
+  const renameInputRef = useRef<HTMLInputElement>(null)
+  const skipRenameBlur = useRef(false)
   const listingRef = useRef<{ sessionId?: string; cwd?: string }>({})
   const loadedDirs = useRef(new Set<string>())
   const filesRef = useRef(files)
@@ -876,6 +907,391 @@ export default function Files() {
   const current = selectedNode && selectedNode.kind !== 'folder' ? selectedNode : undefined
   const folder = files.find((f) => f.id === validParentId && f.kind === 'folder')
 
+  function closeFolderDraft() {
+    setFolderDraft(null)
+    setFolderSaving(false)
+  }
+
+  function submitFolderDraft() {
+    if (folderSaving) return
+    const name = String(folderDraft || '').trim()
+    if (!name) {
+      setFilesError('请填写文件夹名称')
+      return
+    }
+    if (!sessionId) {
+      setFilesError('请先连接核心并开会话')
+      return
+    }
+    if (name.includes('/') || name.includes('\\') || name.includes('\0') || name === '.' || name === '..') {
+      setFilesError('目录名不合法')
+      return
+    }
+    const parent = validParentId && validParentId !== '.' ? validParentId : ''
+    const rel = parent ? `${parent}/${name}` : name
+    if (files.some((node) => node.id === rel)) {
+      setFilesError('已有同名文件或文件夹')
+      return
+    }
+    setFolderSaving(true)
+    setFilesError('')
+    void runtimeApi.mkdirWorkspace(rel, sessionId).then(() => {
+      const now = new Date().toISOString()
+      loadedDirs.current.delete(parent || '.')
+      setFiles((nodes) => [...nodes, {
+        id: rel,
+        name,
+        kind: 'folder',
+        size: 0,
+        parentId: parent || '.',
+        updatedAt: now,
+      }])
+      setFileNotice(`已创建 ${name}`)
+      closeFolderDraft()
+    }).catch((error) => {
+      setFolderSaving(false)
+      setFilesError(error instanceof Error ? error.message : '创建文件夹失败')
+    })
+  }
+
+  const folderDraftOpen = folderDraft !== null
+  useEffect(() => {
+    if (!folderDraftOpen) return
+    folderInputRef.current?.focus()
+  }, [folderDraftOpen])
+
+  useEffect(() => {
+    setPickedIds([])
+    lastPickedId.current = null
+  }, [validParentId])
+
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      const target = event.target
+      if (target instanceof HTMLElement && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return
+      const meta = event.metaKey || event.ctrlKey
+      if (meta && event.key.toLowerCase() === 'a') {
+        event.preventDefault()
+        setPickedIds(visibleIds())
+        return
+      }
+      if (meta && event.key.toLowerCase() === 'x') {
+        event.preventDefault()
+        cutIds(idsForAction())
+        return
+      }
+      if (meta && event.key.toLowerCase() === 'c') {
+        event.preventDefault()
+        copyIds(idsForAction())
+        return
+      }
+      if (meta && event.key.toLowerCase() === 'v') {
+        event.preventDefault()
+        void pasteInto(validParentId || '.')
+        return
+      }
+      if (event.key === 'Escape' && clipboard) {
+        event.preventDefault()
+        clearClipboard()
+        return
+      }
+      if (meta && event.key.toLowerCase() === 'z') {
+        event.preventDefault()
+        if (clipboard) clearClipboard()
+        else void undoLastOp()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [validParentId, pickedIds, clipboard, lastOp, manageBusy, sessionId])
+
+  useEffect(() => {
+    if (!renameId) return
+    renameInputRef.current?.focus()
+    renameInputRef.current?.select()
+  }, [renameId])
+
+  function applyRelChange(from: string, to: string) {
+    setFiles((nodes) => nodes.map((node) => {
+      const id = remapRel(node.id, from, to)
+      const nextParent = node.parentId == null ? null : remapRel(node.parentId, from, to)
+      const name = id === to ? baseRel(to) : node.name
+      if (id === node.id && nextParent === node.parentId && name === node.name) return node
+      return { ...node, id, parentId: nextParent, name, updatedAt: new Date().toISOString() }
+    }))
+    if (parentId === from || (typeof parentId === 'string' && parentId.startsWith(`${from}/`))) {
+      setParentId(remapRel(parentId, from, to))
+    }
+    if (selectedId === from || (typeof selectedId === 'string' && selectedId.startsWith(`${from}/`))) {
+      setSelectedId(remapRel(selectedId, from, to))
+    }
+    loadedDirs.current = new Set([...loadedDirs.current].map((dir) => remapRel(dir, from, to)))
+  }
+
+  function cloneBranch(from: string, to: string) {
+    const now = new Date().toISOString()
+    setFiles((nodes) => {
+      const extras: FileNode[] = []
+      for (const node of nodes) {
+        if (node.id !== from && !node.id.startsWith(`${from}/`)) continue
+        const id = remapRel(node.id, from, to)
+        extras.push({
+          ...node,
+          id,
+          name: id === to ? baseRel(to) : node.name,
+          parentId: node.parentId == null ? null : remapRel(node.parentId, from, to),
+          updatedAt: now,
+        })
+      }
+      return extras.length ? [...nodes, ...extras] : nodes
+    })
+  }
+
+  function destInFolder(from: string, folderId: string) {
+    const dir = !folderId || folderId === '.' ? '' : folderId
+    return joinRel(dir, baseRel(from))
+  }
+
+  function runMove(from: string, to: string) {
+    if (!sessionId || manageBusy) return
+    if (!from || !to || from === to) return
+    if (isSelfOrDescendant(from, to) || isSelfOrDescendant(from, parentRel(to))) {
+      setFilesError('不能移到自己里面')
+      return
+    }
+    if (files.some((node) => node.id === to)) {
+      setFilesError('已有同名文件或文件夹')
+      return
+    }
+    setManageBusy(true)
+    setFilesError('')
+    void runtimeApi.moveWorkspaceFile({ from, to, sessionId }).then(() => {
+      applyRelChange(from, to)
+      setFileNotice(`已移动到 ${to}`)
+    }).catch((error) => {
+      setFilesError(error instanceof Error ? error.message : '移动失败')
+    }).finally(() => setManageBusy(false))
+  }
+
+  function runCopy(from: string, to: string) {
+    if (!sessionId || manageBusy) return
+    if (!from || !to) return
+    if (files.some((node) => node.id === to)) {
+      setFilesError('已有同名文件或文件夹')
+      return
+    }
+    setManageBusy(true)
+    setFilesError('')
+    void runtimeApi.copyWorkspaceFile({ from, to, sessionId }).then(() => {
+      cloneBranch(from, to)
+      setFileNotice(`已复制为 ${baseRel(to)}`)
+    }).catch((error) => {
+      setFilesError(error instanceof Error ? error.message : '复制失败')
+    }).finally(() => setManageBusy(false))
+  }
+
+  function runDelete(id: string) {
+    if (!sessionId || manageBusy) return
+    setManageBusy(true)
+    setFilesError('')
+    void runtimeApi.deleteWorkspaceFile(id, sessionId).then(() => {
+      setFiles((nodes) => nodes.filter((node) => node.id !== id && !node.id.startsWith(`${id}/`)))
+      setPickedIds((ids) => ids.filter((item) => item !== id && !item.startsWith(`${id}/`)))
+      setClipboard((board) => {
+        if (!board) return null
+        const ids = board.ids.filter((item) => item !== id && !item.startsWith(`${id}/`))
+        return ids.length ? { ...board, ids } : null
+      })
+      if (parentId === id || (typeof parentId === 'string' && parentId.startsWith(`${id}/`))) {
+        setParentId(parentIdOf(id))
+      }
+      if (selectedId === id || (typeof selectedId === 'string' && selectedId.startsWith(`${id}/`))) {
+        setSelectedId(null)
+      }
+      setFileNotice('已删除')
+      setPendingDelete(null)
+    }).catch((error) => {
+      setFilesError(error instanceof Error ? error.message : '删除失败')
+    }).finally(() => setManageBusy(false))
+  }
+
+  function submitRename() {
+    if (!renameId) return
+    const name = renameDraft.trim()
+    if (!name) {
+      setFilesError('请填写名称')
+      return
+    }
+    if (name.includes('/') || name.includes('\\') || name.includes('\0') || name === '.' || name === '..') {
+      setFilesError('名称不合法')
+      return
+    }
+    const to = joinRel(parentRel(renameId), name)
+    if (to === renameId) {
+      setRenameId(null)
+      return
+    }
+    setRenameId(null)
+    runMove(renameId, to)
+  }
+
+  function visibleIds() {
+    return files.filter((node) => node.parentId === validParentId).map((node) => node.id)
+  }
+
+  function pickRow(id: string, event?: { shiftKey?: boolean; metaKey?: boolean; ctrlKey?: boolean }) {
+    const additive = Boolean(event?.metaKey || event?.ctrlKey)
+    const range = Boolean(event?.shiftKey)
+    const order = visibleIds()
+    if (range && lastPickedId.current && order.includes(lastPickedId.current) && order.includes(id)) {
+      const start = order.indexOf(lastPickedId.current)
+      const end = order.indexOf(id)
+      const [from, to] = start < end ? [start, end] : [end, start]
+      setPickedIds(order.slice(from, to + 1))
+      return
+    }
+    lastPickedId.current = id
+    if (additive) {
+      setPickedIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id])
+      return
+    }
+    setPickedIds([id])
+  }
+
+  function idsForAction(id?: string) {
+    if (id && pickedIds.includes(id)) return pickedIds
+    if (id) return [id]
+    return pickedIds
+  }
+
+  function clearClipboard() {
+    if (!clipboard) return
+    const mode = clipboard.mode
+    setClipboard(null)
+    setFilesError('')
+    setFileNotice(mode === 'cut' ? '已撤回剪切，文件仍在原处' : '已撤回复制')
+  }
+
+  function cutIds(ids: string[]) {
+    const unique = [...new Set(ids.filter(Boolean))]
+    if (!unique.length) return
+    setClipboard({ ids: unique, mode: 'cut' })
+    setPickedIds(unique)
+    setLastOp(null)
+    setFilesError('')
+    setFileNotice(`已剪切 ${unique.length} 项，文件仍在原处。打开目标文件夹后点粘贴，Esc 撤回剪切`)
+  }
+
+  function copyIds(ids: string[]) {
+    const unique = [...new Set(ids.filter(Boolean))]
+    if (!unique.length) return
+    setClipboard({ ids: unique, mode: 'copy' })
+    setPickedIds(unique)
+    setFilesError('')
+    setFileNotice(`已复制 ${unique.length} 项，打开目标文件夹后点粘贴`)
+  }
+
+  async function pasteInto(destFolder: string, ids = clipboard?.ids || [], mode = clipboard?.mode || 'cut') {
+    if (!sessionId || manageBusy || !ids.length) return
+    const dest = !destFolder || destFolder === '.' ? '' : destFolder
+    const destParentId = dest || '.'
+    setManageBusy(true)
+    setFilesError('')
+    const taken = files.filter((node) => node.parentId === destParentId).map((node) => node.name)
+    const leftover: string[] = []
+    const items: Array<{ from: string; to: string }> = []
+    let done = 0
+    for (const from of ids) {
+      if (isSelfOrDescendant(from, destParentId) || from === destParentId) {
+        leftover.push(from)
+        setFilesError('不能移到自己里面')
+        continue
+      }
+      let to = joinRel(dest, baseRel(from))
+      const destTaken = taken.includes(baseRel(to)) || filesRef.current.some((node) => node.id === to)
+      if (mode === 'cut') {
+        if (to === from) continue
+        if (destTaken) {
+          leftover.push(from)
+          setFilesError(`已有同名「${baseRel(from)}」`)
+          continue
+        }
+      } else if (to === from || destTaken) {
+        to = joinRel(dest, nextCopyName(baseRel(from), taken))
+      }
+      taken.push(baseRel(to))
+      try {
+        if (mode === 'cut') {
+          await runtimeApi.moveWorkspaceFile({ from, to, sessionId })
+          applyRelChange(from, to)
+        } else {
+          await runtimeApi.copyWorkspaceFile({ from, to, sessionId })
+          cloneBranch(from, to)
+        }
+        items.push({ from, to })
+        done += 1
+      } catch (error) {
+        leftover.push(from)
+        setFilesError(error instanceof Error ? error.message : (mode === 'cut' ? '移动失败' : '复制失败'))
+        break
+      }
+    }
+    if (mode === 'cut') setClipboard(leftover.length ? { ids: leftover, mode: 'cut' } : null)
+    else if (done) setClipboard(null)
+    if (done) {
+      setLastOp({ mode, items })
+      setFileNotice(mode === 'cut' ? `已移动 ${done} 项，可撤回` : `已粘贴 ${done} 项，可撤回`)
+    }
+    setPickedIds([])
+    setManageBusy(false)
+  }
+
+  async function undoLastOp() {
+    if (!lastOp || !sessionId || manageBusy) return
+    setManageBusy(true)
+    setFilesError('')
+    const leftover: Array<{ from: string; to: string }> = []
+    let done = 0
+    for (const item of [...lastOp.items].reverse()) {
+      try {
+        if (lastOp.mode === 'cut') {
+          await runtimeApi.moveWorkspaceFile({ from: item.to, to: item.from, sessionId })
+          applyRelChange(item.to, item.from)
+        } else {
+          await runtimeApi.deleteWorkspaceFile(item.to, sessionId)
+          setFiles((nodes) => nodes.filter((node) => node.id !== item.to && !node.id.startsWith(`${item.to}/`)))
+        }
+        done += 1
+      } catch (error) {
+        leftover.push(item)
+        setFilesError(error instanceof Error ? error.message : '撤回失败')
+        break
+      }
+    }
+    setLastOp(leftover.length ? { ...lastOp, items: leftover.reverse() } : null)
+    if (done) setFileNotice(lastOp.mode === 'cut' ? `已撤回移动 ${done} 项` : `已撤回粘贴 ${done} 项`)
+    setManageBusy(false)
+  }
+
+  function acceptFolderDrop(fromList: string[], folderId: string) {
+    void pasteInto(folderId, fromList, 'cut')
+  }
+
+  function readMovePaths(event: DragEvent) {
+    const raw = event.dataTransfer.getData(MOVE_MIME)
+    if (!raw) return [] as string[]
+    try {
+      const parsed = JSON.parse(raw) as { path?: string; paths?: string[] }
+      if (Array.isArray(parsed.paths) && parsed.paths.length) {
+        return parsed.paths.map((item) => String(item || '').trim()).filter(Boolean)
+      }
+      const path = String(parsed.path || '').trim()
+      return path ? [path] : []
+    } catch {
+      return []
+    }
+  }
+
   function sendToCurrentAi(file: FileNode) {
     void attachToCurrentAi({ path: file.id, name: file.name }).then((result) => {
       if (!result.ok) {
@@ -1020,7 +1436,7 @@ export default function Files() {
   }, [folder, files])
 
   return (
-    <div>
+    <div onDragOver={trapMoveDrag} onDrop={trapMoveDrag}>
       <PageTitle
         title={current ? current.name : '文件'}
         subtitle={current ? `预览 · ${formatBytes(current.size)} · 更新于 ${new Date(current.updatedAt).toLocaleString('zh-CN')}` : '工作区文件库,支持多类型预览与编辑。'}
@@ -1069,29 +1485,44 @@ export default function Files() {
                 }}
               />
               <button type="button" className="btn" disabled={!sessionId} title={sessionId ? '上传走当前会话工作区' : '请先连接核心并开会话'} onClick={() => uploadRef.current?.click()}><Upload size={14} /> 上传</button>
-              <button
-                type="button"
-                className="btn-primary"
-                disabled={!sessionId}
-                onClick={() => {
-                  const name = window.prompt('文件夹名称')?.trim()
-                  if (!name || !sessionId || name.includes('/') || name.includes('\\')) return
-                  const folder = validParentId && validParentId !== '.' ? validParentId : ''
-                  const rel = folder ? `${folder}/${name}` : name
-                  void runtimeApi.mkdirWorkspace(rel, sessionId ?? undefined).then(() => {
-                    const now = new Date().toISOString()
-                    loadedDirs.current.delete(folder || '.')
-                    setFiles((nodes) => [...nodes, {
-                      id: rel,
-                      name,
-                      kind: 'folder',
-                      size: 0,
-                      parentId: folder || '.',
-                      updatedAt: now,
-                    }])
-                  }).catch(() => undefined)
-                }}
-              ><Plus size={14} /> 新文件夹</button>
+              {folderDraft === null ? (
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={!sessionId}
+                  title={sessionId ? '在当前目录新建文件夹' : '请先连接核心并开会话'}
+                  onClick={() => {
+                    setFilesError('')
+                    setFolderDraft('')
+                  }}
+                ><Plus size={14} /> 新文件夹</button>
+              ) : (
+                <>
+                  <input
+                    ref={folderInputRef}
+                    type="text"
+                    className="input h-8 w-44"
+                    placeholder="文件夹名称"
+                    aria-label="文件夹名称"
+                    value={folderDraft}
+                    disabled={folderSaving}
+                    onChange={(event) => setFolderDraft(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        submitFolderDraft()
+                      }
+                      if (event.key === 'Escape') {
+                        event.preventDefault()
+                        closeFolderDraft()
+                      }
+                    }}
+                  />
+                  <button type="button" className="btn-primary" disabled={folderSaving || !sessionId} onClick={() => submitFolderDraft()}>创建</button>
+                  <button type="button" className="btn" disabled={folderSaving} onClick={() => closeFolderDraft()}>取消</button>
+                  {filesError && <span className="text-xs text-accent-red max-w-[12rem] truncate" title={filesError}>{filesError}</span>}
+                </>
+              )}
             </>
           )
         }
@@ -1099,6 +1530,30 @@ export default function Files() {
 
       {fileNotice && (
         <div className="mb-3 px-3 py-2 rounded-lg bg-emerald-50 text-emerald-800 text-sm">{fileNotice}</div>
+      )}
+      {filesError && !folderDraftOpen && (
+        <div className="mb-3 text-sm text-accent-red">{filesError}</div>
+      )}
+      {clipboard && (
+        <div className="mb-3 px-3 py-2 rounded-lg border border-line text-sm flex items-center justify-between gap-2">
+          <span>已{clipboard.mode === 'cut' ? '剪切' : '复制'} {clipboard.ids.length} 项，文件仍在原处。打开目标文件夹后点粘贴。</span>
+          <button type="button" className="btn h-8" disabled={manageBusy} onClick={() => clearClipboard()}>撤回{clipboard.mode === 'cut' ? '剪切' : '复制'}</button>
+        </div>
+      )}
+      {!clipboard && lastOp && (
+        <div className="mb-3 px-3 py-2 rounded-lg border border-line text-sm flex items-center justify-between gap-2">
+          <span>上次{lastOp.mode === 'cut' ? '移动' : '粘贴'}了 {lastOp.items.length} 项。</span>
+          <button type="button" className="btn h-8" disabled={manageBusy} onClick={() => void undoLastOp()}>撤回</button>
+        </div>
+      )}
+      {pendingDelete && (
+        <div className="mb-3 px-3 py-2 rounded-lg border border-line text-sm flex items-center justify-between gap-2">
+          <span>确定删除{pendingDelete.kind === 'folder' ? '文件夹' : ''}「{pendingDelete.name}」{pendingDelete.kind === 'folder' ? '及其中全部内容' : ''}？</span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button type="button" className="btn-primary h-8" disabled={manageBusy} onClick={() => runDelete(pendingDelete.id)}>删除</button>
+            <button type="button" className="btn h-8" disabled={manageBusy} onClick={() => setPendingDelete(null)}>取消</button>
+          </div>
+        </div>
       )}
 
       {filesReady && files.length === 0 && !current && (
@@ -1298,7 +1753,8 @@ export default function Files() {
                 node={root}
                 files={files}
                 active={validParentId}
-                onSelect={setParentId}
+                onSelect={(id) => setParentId(id)}
+                onMoveDrop={(fromList, folderId) => acceptFolderDrop(fromList, folderId)}
                 depth={0}
               />
             ) : (
@@ -1318,6 +1774,12 @@ export default function Files() {
                       <button
                         className={clsx('hover:underline', i === crumbs.length - 1 ? 'font-medium' : 'text-ink-muted')}
                         onClick={() => setParentId(c.id)}
+                        onDragOver={trapMoveDrag}
+                        onDrop={(event) => {
+                          trapMoveDrag(event)
+                          const fromList = readMovePaths(event)
+                          if (fromList.length) acceptFolderDrop(fromList, c.id)
+                        }}
                       >
                         <span className="mr-1">{c.kind === 'folder' ? '📁' : '📄'}</span>
                         {c.name}
@@ -1340,6 +1802,36 @@ export default function Files() {
                     <option value="name">按名称</option>
                     <option value="size">按大小</option>
                   </select>
+                  <button
+                    type="button"
+                    className="btn h-8"
+                    disabled={!pickedIds.length || manageBusy}
+                    title="剪切选中项"
+                    onClick={() => cutIds(pickedIds)}
+                  >
+                    <Scissors size={14} /> 剪切
+                  </button>
+                  <button
+                    type="button"
+                    className="btn h-8"
+                    disabled={!pickedIds.length || manageBusy}
+                    title="复制选中项"
+                    onClick={() => copyIds(pickedIds)}
+                  >
+                    <Copy size={14} /> 复制
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-primary h-8"
+                    disabled={!clipboard || manageBusy || !sessionId}
+                    title="粘贴到当前文件夹"
+                    onClick={() => void pasteInto(validParentId || '.')}
+                  >
+                    <ClipboardPaste size={14} /> 粘贴
+                  </button>
+                  {pickedIds.length > 0 && (
+                    <span className="text-xs text-ink-muted">已选 {pickedIds.length} 项</span>
+                  )}
                   <button
                     className={clsx('btn h-8', showStarred && 'bg-brand-soft border-brand/30 text-brand')}
                     onClick={() => setShowStarred(!showStarred)}
@@ -1382,7 +1874,18 @@ export default function Files() {
               <Empty title="这个目录是空的" hint="试试上传文件,或新建一个文件夹" />
             ) : (
               <Card className="p-0 overflow-x-auto">
-                <div className="min-w-[448px] grid grid-cols-[minmax(120px,1fr)_168px_96px] @xl:grid-cols-[minmax(160px,1fr)_120px_100px_168px_96px] text-xs text-ink-muted uppercase tracking-wider border-b border-line px-4 py-2.5">
+                <div className="min-w-[448px] grid grid-cols-[24px_minmax(120px,1fr)_168px_96px] @xl:grid-cols-[24px_minmax(160px,1fr)_120px_100px_168px_96px] text-xs text-ink-muted uppercase tracking-wider border-b border-line px-4 py-2.5">
+                  <div>
+                    <input
+                      type="checkbox"
+                      aria-label="全选当前目录"
+                      checked={inParent.length > 0 && inParent.every((node) => pickedIds.includes(node.id))}
+                      onChange={() => {
+                        const ids = inParent.map((node) => node.id)
+                        setPickedIds((current) => current.length === ids.length && ids.every((id) => current.includes(id)) ? [] : ids)
+                      }}
+                    />
+                  </div>
                   <div>名称</div>
                   <div className="hidden @xl:block">类型</div>
                   <div className="hidden @xl:block text-right pr-2">大小</div>
@@ -1391,46 +1894,144 @@ export default function Files() {
                 </div>
                 {inParent.map((f) => {
                   const I = ICON_BY_KIND[f.kind] ?? FileText
+                  const picked = pickedIds.includes(f.id)
+                  const cutAway = clipboard?.mode === 'cut' && clipboard.ids.includes(f.id)
                   return (
                     <div
                       key={f.id}
-                      draggable={f.kind !== 'folder'}
+                      draggable
                       onDragStart={(event) => {
-                        if (f.kind === 'folder') return
+                        const paths = picked ? pickedIds : [f.id]
                         const payload = JSON.stringify({
                           path: f.id,
                           name: f.name,
+                          paths,
                         })
-                        event.dataTransfer.setData('application/x-fde-file', payload)
-                        event.dataTransfer.setData('text/plain', `fde-file:${payload}`)
-                        event.dataTransfer.effectAllowed = 'copy'
+                        event.dataTransfer.setData(MOVE_MIME, payload)
+                        if (f.kind !== 'folder' && paths.length === 1) {
+                          event.dataTransfer.setData('application/x-fde-file', payload)
+                          event.dataTransfer.setData('text/plain', `fde-file:${payload}`)
+                        }
+                        event.dataTransfer.effectAllowed = 'copyMove'
                       }}
-                      className="min-w-[448px] grid grid-cols-[minmax(120px,1fr)_168px_96px] @xl:grid-cols-[minmax(160px,1fr)_120px_100px_168px_96px] items-center px-4 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group"
+                      onDragOver={(event) => {
+                        if (f.kind === 'folder') trapMoveDrag(event)
+                      }}
+                      onDrop={(event) => {
+                        if (f.kind !== 'folder') return
+                        trapMoveDrag(event)
+                        const fromList = readMovePaths(event)
+                        if (fromList.length) acceptFolderDrop(fromList, f.id)
+                      }}
+                      className={clsx(
+                        'min-w-[448px] grid grid-cols-[24px_minmax(120px,1fr)_168px_96px] @xl:grid-cols-[24px_minmax(160px,1fr)_120px_100px_168px_96px] items-center px-4 py-2.5 border-b border-line last:border-b-0 hover:bg-surface-2/40 group',
+                        picked && 'bg-brand-soft',
+                        cutAway && 'opacity-50',
+                      )}
                     >
-                      <button
-                        className="flex items-center gap-2 min-w-0 text-left"
-                        onClick={() => {
-                          if (f.kind === 'folder') {
-                            setParentId(f.id)
-                            return
-                          }
-                          setSelectedId(f.id)
-                          consumeFilePick(f.id)
+                      <input
+                        type="checkbox"
+                        aria-label={`选择 ${f.name}`}
+                        checked={picked}
+                        onChange={(event) => {
+                          event.stopPropagation()
+                          pickRow(f.id, { metaKey: true })
                         }}
-                      >
-                        <I size={16} className={clsx('shrink-0', f.kind === 'folder' ? 'text-accent-amber' : 'text-ink-muted')} />
-                        <span className="truncate text-sm">{f.name}</span>
-                        {f.starred && <Star size={12} className="text-brand fill-brand shrink-0" />}
-                      </button>
+                        onClick={(event) => event.stopPropagation()}
+                      />
+                      {renameId === f.id ? (
+                        <input
+                          ref={renameInputRef}
+                          className="input h-8 text-sm"
+                          value={renameDraft}
+                          aria-label="重命名"
+                          disabled={manageBusy}
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') {
+                              event.preventDefault()
+                              submitRename()
+                            }
+                            if (event.key === 'Escape') {
+                              event.preventDefault()
+                              skipRenameBlur.current = true
+                              setRenameId(null)
+                            }
+                          }}
+                          onBlur={() => {
+                            if (skipRenameBlur.current) {
+                              skipRenameBlur.current = false
+                              return
+                            }
+                            submitRename()
+                          }}
+                        />
+                      ) : (
+                        <button
+                          className="flex items-center gap-2 min-w-0 text-left"
+                          title="单击选择，双击打开"
+                          onClick={(event) => {
+                            if (event.metaKey || event.ctrlKey || event.shiftKey) {
+                              pickRow(f.id, event)
+                              return
+                            }
+                            pickRow(f.id)
+                          }}
+                          onDoubleClick={(event) => {
+                            event.preventDefault()
+                            if (f.kind === 'folder') {
+                              setParentId(f.id)
+                              return
+                            }
+                            setSelectedId(f.id)
+                            consumeFilePick(f.id)
+                          }}
+                        >
+                          <I size={16} className={clsx('shrink-0', f.kind === 'folder' ? 'text-accent-amber' : 'text-ink-muted')} />
+                          <span className="truncate text-sm">{f.name}</span>
+                          {f.starred && <Star size={12} className="text-brand fill-brand shrink-0" />}
+                        </button>
+                      )}
                       <div className="hidden @xl:block"><Tag>{f.kind}</Tag></div>
                       <div className="hidden @xl:block text-right pr-2 text-xs text-ink-muted tabular-nums">{f.kind === 'folder' ? '—' : formatBytes(f.size)}</div>
                       <div className="text-xs text-ink-muted tabular-nums whitespace-nowrap pr-2">{formatListTime(f.updatedAt)}</div>
-                      <div className="flex items-center justify-end gap-1 shrink-0">
+                      <div className="flex items-center justify-end gap-1 shrink-0 flex-wrap">
                         <button
                           className="btn-ghost p-1 text-ink-subtle hover:text-brand"
                           onClick={() => setFiles((nodes) => nodes.map((node) => node.id === f.id ? { ...node, starred: !node.starred } : node))}
                         >
                           <Star size={14} className={f.starred ? 'fill-brand text-brand' : ''} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost p-1 text-ink-subtle hover:text-brand opacity-0 group-hover:opacity-100"
+                          title="重命名"
+                          disabled={manageBusy}
+                          onClick={() => {
+                            setFilesError('')
+                            setRenameId(f.id)
+                            setRenameDraft(f.name)
+                          }}
+                        >
+                          <Pencil size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost p-1 text-ink-subtle hover:text-brand opacity-0 group-hover:opacity-100"
+                          title="复制"
+                          disabled={manageBusy}
+                          onClick={() => copyIds(idsForAction(f.id))}
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-ghost p-1 text-ink-subtle hover:text-brand opacity-0 group-hover:opacity-100"
+                          title="剪切"
+                          disabled={manageBusy}
+                          onClick={() => cutIds(idsForAction(f.id))}
+                        >
+                          <Scissors size={14} />
                         </button>
                         {f.kind !== 'folder' && (
                           <button
@@ -1442,18 +2043,21 @@ export default function Files() {
                             <Send size={14} />
                           </button>
                         )}
-                        {f.kind !== 'folder' && (
-                          <button
-                            className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
-                            onClick={() => {
-                              void runtimeApi.deleteWorkspaceFile(f.name, sessionId ?? undefined).then(() => {
-                                setFiles((nodes) => nodes.filter((node) => node.id !== f.id))
-                              }).catch(() => undefined)
-                            }}
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          className="btn-ghost p-1 text-ink-subtle hover:text-accent-red opacity-0 group-hover:opacity-100"
+                          title="删除"
+                          disabled={manageBusy}
+                          onClick={() => {
+                            if (f.kind === 'folder') {
+                              setPendingDelete({ id: f.id, name: f.name, kind: f.kind })
+                              return
+                            }
+                            runDelete(f.id)
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </div>
                   )
@@ -1468,8 +2072,15 @@ export default function Files() {
 }
 
 function TreeNode({
-  node, files, active, onSelect, depth,
-}: { node: FileNode; files: FileNode[]; active: string | null; onSelect: (id: string) => void; depth: number }) {
+  node, files, active, onSelect, onMoveDrop, depth,
+}: {
+  node: FileNode
+  files: FileNode[]
+  active: string | null
+  onSelect: (id: string) => void
+  onMoveDrop: (fromList: string[], folderId: string) => void
+  depth: number
+}) {
   const [open, setOpen] = useState(true)
   const children = files.filter((f) => f.parentId === node.id && f.kind === 'folder')
   const selected = active === node.id
@@ -1490,6 +2101,21 @@ function TreeNode({
           setOpen(true)
           onSelect(node.id)
         }}
+        onDragOver={trapMoveDrag}
+        onDrop={(event) => {
+          trapMoveDrag(event)
+          const raw = event.dataTransfer.getData(MOVE_MIME)
+          if (!raw) return
+          try {
+            const parsed = JSON.parse(raw) as { path?: string; paths?: string[] }
+            const fromList = Array.isArray(parsed.paths) && parsed.paths.length
+              ? parsed.paths.map((item) => String(item || '').trim()).filter(Boolean)
+              : [String(parsed.path || '').trim()].filter(Boolean)
+            if (fromList.length) onMoveDrop(fromList, node.id)
+          } catch {
+            /* ignore */
+          }
+        }}
       >
         {open && children.length > 0 ? <FolderOpen size={14} /> : <Folder size={14} />}
         <span className="truncate">{node.name}</span>
@@ -1497,7 +2123,7 @@ function TreeNode({
       {open && children.length > 0 && (
         <div>
           {children.map((c) => (
-            <TreeNode key={c.id} node={c} files={files} active={active} onSelect={onSelect} depth={depth + 1} />
+            <TreeNode key={c.id} node={c} files={files} active={active} onSelect={onSelect} onMoveDrop={onMoveDrop} depth={depth + 1} />
           ))}
         </div>
       )}

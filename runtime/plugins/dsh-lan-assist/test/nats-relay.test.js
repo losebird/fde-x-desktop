@@ -5,6 +5,7 @@ import { RELAY_INLINE_MAX } from '../home.js'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { connectNats, natsModuleSpec, natsUsesWebSocket, splitNatsServer } from '../nats-connect.js'
 import { createNatsTransport, deliveryId, inboxSubject, inviteLive, mintRelayInvite, packRelayCredsPath, packRelayUrl, relayUrl, setRelayStore, takeNatsInboxLock } from '../nats-relay.js'
 
 test('relay invite is relay+device+session, never the pairing code', () => {
@@ -46,8 +47,57 @@ test('NATS connect can take official creds bytes, not a homemade jwt', async () 
 test('relay settings pack nats url and absolute creds path', () => {
   assert.equal(packRelayUrl('http://x').ok, false)
   assert.equal(packRelayUrl('nats://127.0.0.1:4222').url, 'nats://127.0.0.1:4222')
+  assert.equal(packRelayUrl('wss://box.example.ts.net/').url, 'wss://box.example.ts.net/')
   assert.equal(packRelayCredsPath('relative.creds').ok, false)
   assert.equal(packRelayCredsPath('/tmp/device.creds').ok, true)
+})
+
+test('wss urls with :token@ strip userinfo before the websocket dials', () => {
+  const split = splitNatsServer('wss://:secret-token@box.example.ts.net/')
+  assert.equal(split.servers, 'wss://box.example.ts.net/')
+  assert.equal(split.token, 'secret-token')
+  assert.equal(split.user, undefined)
+})
+
+test('wss urls load nats.ws instead of the TCP nats transport', async () => {
+  assert.equal(natsUsesWebSocket('wss://box.example.ts.net/'), true)
+  assert.equal(natsUsesWebSocket('ws://127.0.0.1:443'), true)
+  assert.equal(natsUsesWebSocket('nats://127.0.0.1:4222'), false)
+  assert.equal(natsModuleSpec('wss://relay.example/nats'), 'nats.ws')
+  assert.equal(natsModuleSpec('nats://127.0.0.1:4222'), 'nats')
+  const seen = []
+  const loaded = await connectNats(
+    { servers: 'wss://:secret-token@relay.example/nats' },
+    {
+      importModule: async (spec) => {
+        seen.push(spec)
+        return {
+          connect: async (conf) => ({ ok: true, servers: conf.servers, token: conf.token }),
+        }
+      },
+    },
+  )
+  assert.deepEqual(seen, ['nats.ws'])
+  assert.equal(loaded.spec, 'nats.ws')
+  assert.equal(loaded.client.servers, 'wss://relay.example/nats')
+  assert.equal(loaded.client.token, 'secret-token')
+})
+
+test('relay connect records a real error instead of hanging on connecting', async () => {
+  const live = createNatsTransport({
+    url: 'wss://relay.example/nats',
+    connect: async () => {
+      const err = new Error('TIMEOUT')
+      err.code = 'TIMEOUT'
+      throw err
+    },
+  })
+  assert.equal(typeof live.connect, 'function')
+  await live.connect()
+  const st = live.status()
+  assert.equal(st.configured, true)
+  assert.equal(st.connected, false)
+  assert.equal(st.error, 'TIMEOUT')
 })
 
 test('relay is off without DSH_LAN_ASSIST_NATS', () => {

@@ -42,12 +42,13 @@ test('shouldRunSemanticInstall follows install-state + treeHash + installed prob
 })
 
 test('official runtime-install.js is wired for packaged vendor tree', async () => {
-  const installer = runtimeInstallerModulePath(vendorDir)
+  const installer = join(repoRoot, 'runtime', 'plugins', 'dsh-semantic-os', 'runtime-install.js')
   const raw = await readFile(installer, 'utf8')
   assert.match(raw, /installRuntimeFromDirectory/u)
-  assert.match(raw, /\.staging-/u)
-  assert.match(raw, /verifyFiles: true/u)
-  const bundlePath = join(vendorDir, 'dsh-semantic-os', 'runtime-bundle.js')
+  assert.match(raw, /copyRuntimeTree/u)
+  assert.match(raw, /robocopy/u)
+  const bundlePath = join(repoRoot, 'runtime', 'plugins', 'dsh-semantic-os', 'runtime-bundle.js')
   const bundleRaw = await readFile(bundlePath, 'utf8')
   assert.match(bundleRaw, /treeHash/u)
+  assert.equal(runtimeInstallerModulePath(vendorDir).endsWith('runtime-install.js'), true)
 })

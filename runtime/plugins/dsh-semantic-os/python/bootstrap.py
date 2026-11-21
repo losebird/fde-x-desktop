@@ -1558,14 +1558,15 @@ def save_session(session: Any, path: Path) -> None:
         wrote = write_primary(session.graph, cwd, base=getattr(session, "_fdex_base", None))
         if wrote.get("ok"):
             session._fdex_base = graph_store.baseline_of(session.graph)
+            if int(wrote.get("wrote") or 0) > 0:
+                try:
+                    schedule_rebuild_vectors(cwd, session.graph)
+                except Exception:
+                    pass
     except Exception:
         pass
     try:
         save_vs(cwd, getattr(session, "_vs", None) or get_vs(cwd))
-    except Exception:
-        pass
-    try:
-        schedule_rebuild_vectors(cwd, session.graph)
     except Exception:
         pass
 
@@ -8221,6 +8222,9 @@ def run_tool(op: str, cwd: str, args: dict[str, Any]) -> dict[str, Any]:
         if linked:
             save_session(session, path)
         return {"ok": True, "linked": linked}
+    if op == "pause_vectors":
+        from stores import set_vector_paused
+        return set_vector_paused(bool((args or {}).get("paused")))
     if op in {"extract_entities", "extract_relations"}:
         allowed = may_extract(args)
         if not allowed.get("ok"):

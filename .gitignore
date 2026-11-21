@@ -1,5 +1,6 @@
 node_modules/
 scripts/pack/.cache/
+resources-win32-x64/
 .test-env
 .vendor/
 .dsh-fde-x-test/

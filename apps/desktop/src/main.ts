@@ -264,10 +264,42 @@ function readBrandLogoSvg(resources: string) {
   return ''
 }
 
+async function setBackgroundPaused(paused: boolean) {
+  if (!bffPort || quitting) return
+  try {
+    await fetch(`http://127.0.0.1:${bffPort}/api/v1/runtime/background`, {
+      method: 'POST',
+      headers: {
+        Origin: pageOrigin(bffPort),
+        'Content-Type': 'application/json',
+        'x-fde-ui-token': uiToken,
+      },
+      body: JSON.stringify({ paused }),
+    })
+  } catch {
+    /* BFF may be down during hide */
+  }
+}
+
+function bindMainWindowLifecycle(win: BrowserWindow) {
+  win.on('close', (event) => {
+    if (process.platform === 'darwin' && !quitting) {
+      event.preventDefault()
+      win.hide()
+    }
+  })
+  win.on('hide', () => { void setBackgroundPaused(true) })
+  win.on('minimize', () => { void setBackgroundPaused(true) })
+  win.on('show', () => { void setBackgroundPaused(false) })
+  win.on('restore', () => { void setBackgroundPaused(false) })
+}
+
 function openMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) {
-    loadMain(bffPort)
+    if (bffPort) loadMain(bffPort)
+    if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.show()
+    mainWindow.focus()
     return
   }
   mainWindow = new BrowserWindow({
@@ -282,6 +314,7 @@ function openMainWindow() {
       nodeIntegration: false,
     },
   })
+  bindMainWindowLifecycle(mainWindow)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (isSafeExternalUrl(url)) void shell.openExternal(url)
     return { action: 'deny' }
@@ -335,23 +368,36 @@ async function createWindow() {
     initWindow.webContents.executeJavaScript(initWindowSetStepSource(text)).catch(() => undefined)
   }
 
-  await ensureFirstRun({
-    dshHome: roots.dshHome,
-    installStatePath: roots.installState,
-    semanticRuntimeSrc: join(resources, 'semantic-runtime', platformRuntimeKey()),
-    vendorDir: join(resources, 'plugins'),
-    platform: platformRuntimeKey(),
-    skipSemanticCopy: desktopDev(),
-    onProgress: (step, detail) => {
-      if (step === 'create_dirs') setStep('创建用户目录…')
-      if (step === 'semantic_probe') setStep('检查语义引擎安装状态…')
-      if (step === 'semantic_verify_source') setStep('校验语义引擎包…')
-      if (step === 'semantic_install') setStep('正在安装语义引擎（约 1.8 GB）…')
-      if (step === 'semantic_tree_hash') setStep(detail ? '校验 treeHash…' : '校验 treeHash…')
-      if (step === 'write_install_state') setStep('写入安装状态…')
-      if (step === 'complete') setStep('完成')
-    },
-  })
+  let installTick
+  try {
+    installTick = setInterval(() => {
+      setStep('正在安装语义引擎（约 4 万个文件，可能需要几分钟）…')
+    }, 4000)
+    await ensureFirstRun({
+      dshHome: roots.dshHome,
+      installStatePath: roots.installState,
+      semanticRuntimeSrc: join(resources, 'semantic-runtime', platformRuntimeKey()),
+      vendorDir: join(resources, 'plugins'),
+      platform: platformRuntimeKey(),
+      skipSemanticCopy: desktopDev(),
+      onProgress: (step, detail) => {
+        if (step === 'create_dirs') setStep('创建用户目录…')
+        if (step === 'semantic_probe') setStep('检查语义引擎安装状态…')
+        if (step === 'semantic_verify_source') setStep('校验语义引擎包…')
+        if (step === 'semantic_install') setStep('正在安装语义引擎（约 4 万个文件，可能需要几分钟）…')
+        if (step === 'semantic_tree_hash') setStep(detail ? '校验 treeHash…' : '校验 treeHash…')
+        if (step === 'write_install_state') setStep('写入安装状态…')
+        if (step === 'complete') setStep('完成')
+      },
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    setStep(`初始化失败：${message}`)
+    dialog.showErrorBox('FDE-X 初始化失败', message)
+    throw error
+  } finally {
+    if (installTick) clearInterval(installTick)
+  }
 
   setStep('正在启动核心…')
   await startBff()
@@ -419,19 +465,29 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  if (process.platform === 'darwin') return
   quitTimer = setTimeout(() => { void gracefulShutdown().finally(() => app.quit()) }, 60_000)
 })
 
 app.on('before-quit', () => {
+  quitting = true
   if (quitTimer) clearTimeout(quitTimer)
+  quitTimer = null
   void gracefulShutdown()
 })
 
 app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    void createWindow()
+  if (quitTimer) {
+    clearTimeout(quitTimer)
+    quitTimer = null
   }
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    void createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
 })
 
 app.on('second-instance', () => {

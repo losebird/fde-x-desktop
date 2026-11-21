@@ -7,6 +7,19 @@ import test from 'node:test'
 const here = dirname(fileURLToPath(import.meta.url))
 const main = readFileSync(join(here, '../dist/main.js'), 'utf8')
 
+test('hidden window pauses ingest and vector workers', () => {
+  assert.match(main, /runtime\/background/)
+  assert.match(main, /setBackgroundPaused\(true\)/)
+  assert.match(main, /win\.on\('hide'/)
+})
+
+test('macOS dock restore hides instead of quitting the core', () => {
+  assert.match(main, /bindMainWindowLifecycle/)
+  assert.match(main, /win\.hide\(\)/)
+  assert.match(main, /platform === 'darwin' && !quitting/)
+  assert.match(main, /process\.platform === ['"]darwin['"]/)
+})
+
 test('fde:notify posts a macOS banner and plays Glass', () => {
   assert.match(main, /fde:notify/)
   assert.match(main, /new Notification/)

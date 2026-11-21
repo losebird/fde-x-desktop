@@ -152,17 +152,17 @@ void (async () => {
   const state = await load()
   const selfId = String((state.self && state.self.id) || '').replace(/[^A-Za-z0-9._-]/g, '')
   if (!selfId) return
-  let nats
-  try { nats = await import('nats') } catch {
-    process.stdout.write(JSON.stringify({ error: 'NATS_DEPENDENCY_MISSING' }))
+  let nc
+  try {
+    const { connectNats } = await import('./nats-connect.js')
+    const conf = { servers: url }
+    const creds = String(process.env.DSH_LAN_ASSIST_NATS_CREDS || '').trim()
+    if (creds) conf.creds = await readFile(creds)
+    nc = (await connectNats(conf, { url })).client
+  } catch (error) {
+    process.stdout.write(JSON.stringify({ error: (error && error.code) || 'NATS_DEPENDENCY_MISSING' }))
     process.exit(1)
   }
-  const conf = { servers: url }
-  const creds = String(process.env.DSH_LAN_ASSIST_NATS_CREDS || '').trim()
-  if (creds && typeof nats.credsAuthenticator === 'function') {
-    conf.authenticator = nats.credsAuthenticator(await readFile(creds))
-  }
-  const nc = await nats.connect(conf)
   const sub = nc.subscribe('dsh.v1.inbox.' + selfId)
   for await (const m of sub) {
     let frame

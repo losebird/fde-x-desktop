@@ -6,6 +6,20 @@ import test from 'node:test'
 
 import { NODE_DIST_VERSION, nodeDistArchiveName, nodeDistPresent, nodeDistUrls, probeLauncherVersion } from './node-dist.mjs'
 
+test('nodeDistPresent skips executing Windows launchers when cross-staging', () => {
+  const root = join(tmpdir(), `fde-node-win-${process.pid}`)
+  mkdirSync(root, { recursive: true })
+  writeFileSync(join(root, 'node.exe'), 'not-a-binary')
+  writeFileSync(join(root, 'npm.cmd'), 'not-a-binary')
+  writeFileSync(join(root, 'npx.cmd'), 'not-a-binary')
+  try {
+    assert.equal(nodeDistPresent(root, 'win32', { probe: false }), true)
+    assert.equal(nodeDistPresent(root, 'win32', { probe: true }), false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('node dist archive names follow official dist layout', () => {
   assert.equal(nodeDistArchiveName('24.21.0', 'darwin', 'arm64'), 'node-v24.21.0-darwin-arm64.tar.gz')
   assert.equal(nodeDistArchiveName('24.21.0', 'linux', 'x64'), 'node-v24.21.0-linux-x64.tar.gz')

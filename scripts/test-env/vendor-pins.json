@@ -30,5 +30,10 @@
     "version": "2.29.3",
     "integrity": "sha512-tOQCRCwC74DgBTk4pWZ9V45sk4d7peoE2njVprMRCBXrhJ5q5cYM7i6W+Uvw2qUrcfOSnuisrX7bEx3b3Wx4QA==",
     "plugin": "dsh-lan-assist"
+  },
+  "natsWs": {
+    "version": "1.30.3",
+    "integrity": "sha512-aM77V2SEc+B6lbxCMZK3qfRy4jg8pmHj+wZzQKDiDIQYhLPj6U2NSHHBex0syj72Ayzl4uR5Lp3aKXTaVLbRpw==",
+    "plugin": "dsh-lan-assist"
   }
 }

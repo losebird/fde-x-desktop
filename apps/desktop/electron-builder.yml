@@ -7,7 +7,7 @@ files:
   - dist/**
   - package.json
 extraResources:
-  - from: ../../resources
+  - from: ${env.FDE_ELECTRON_RESOURCES}
     to: resources
     filter:
       - "**/*"
@@ -26,3 +26,15 @@ mac:
   extendInfo:
     NSUserNotificationAlertStyle: alert
     NSUserNotificationsUsageDescription: 任务完成时在后台提醒你。
+win:
+  icon: build/icon.png
+  target:
+    - nsis
+    - zip
+  artifactName: ${productName}-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: FDE-X
+  uninstallDisplayName: FDE-X

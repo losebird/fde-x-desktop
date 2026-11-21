@@ -362,8 +362,11 @@ export default function AI() {
       const types = [...transfer.types]
       return types.includes('application/x-fde-file') || types.includes('text/plain')
     }
+    function isAiDropHost(target: EventTarget | null) {
+      return target instanceof Element && Boolean(target.closest('[data-ai-drop]'))
+    }
     function onDragOver(event: DragEvent) {
-      if (!isFdeFile(event.dataTransfer)) return
+      if (!isFdeFile(event.dataTransfer) || !isAiDropHost(event.target)) return
       event.preventDefault()
       if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
       setDropActive(true)
@@ -372,6 +375,10 @@ export default function AI() {
       setDropActive(false)
     }
     function onDrop(event: DragEvent) {
+      if (!isAiDropHost(event.target)) {
+        setDropActive(false)
+        return
+      }
       const raw = event.dataTransfer?.getData('application/x-fde-file') || event.dataTransfer?.getData('text/plain') || ''
       if (!raw.includes('fde-file') && !raw.startsWith('{')) {
         setDropActive(false)
@@ -1136,7 +1143,7 @@ export default function AI() {
               </div>
             </aside>
             <div className="flex-1 min-h-0 min-w-0 flex flex-col">
-              <div className="flex-1 min-h-0 min-w-0 relative">
+              <div className="flex-1 min-h-0 min-w-0 relative" data-ai-drop>
                 {dshFrameSrc ? (
                   <iframe
                     ref={dshFrameRef}

@@ -1,6 +1,6 @@
 import { createServer, request as httpRequest } from 'node:http'
 import { createReadStream, existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { appendFile, cp, mkdir, readdir, readFile, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, cp, lstat, mkdir, readdir, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { dirname, extname, join, resolve, sep } from 'node:path'
 import { homedir } from 'node:os'
 import { execFile } from 'node:child_process'
@@ -74,6 +74,13 @@ import {
   openDatabase,
 } from './db.mjs'
 import { inspectAdapters } from './adapters.mjs'
+import {
+  isSelfOrDescendant,
+  parentRel,
+  resolveWorkspaceDir,
+  resolveWorkspaceTarget,
+  safeWorkspaceRel,
+} from './files-manage.mjs'
 import { LIVE_PATH, liveProbeBody, withProbeTimeout } from './live-probe.mjs'
 import { ENGINE_PROBE_MS, engineProbeKind } from './engine-probe.mjs'
 import { enrichReadyWithLlm, readDshDefaultLlm } from './dsh-default-llm.mjs'
@@ -294,14 +301,6 @@ function stripSecrets(value) {
     return next
   }
   return value
-}
-
-function safeWorkspaceRel(name) {
-  const text = String(name || '').trim()
-  if (!text || text.includes('\0')) return null
-  const parts = text.split(/[\\/]/u).filter(Boolean)
-  if (parts.length === 0 || parts.some((part) => part === '.' || part === '..')) return null
-  return parts.join('/')
 }
 
 async function resolveFileRoot(sessionId) {
@@ -2191,6 +2190,15 @@ const server = createServer(async (request, response) => {
       return
     }
 
+    if (request.method === 'POST' && url.pathname === '/api/v1/runtime/background') {
+      const body = await readJson(request)
+      const { setBackgroundPaused } = await import('./semantic-os-bff.mjs')
+      const paused = body && body.paused
+      const result = await setBackgroundPaused(paused)
+      sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
+      return
+    }
+
     if (request.method === 'GET' && url.pathname === '/api/v1/memory/session-ingest') {
       const result = await aiRuntime.semanticOs('/session-ingest', { method: 'GET' })
       sendJson(response, 200, { data: result, correlationId: currentCorrelationId })
@@ -3300,19 +3308,104 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === 'DELETE' && url.pathname === '/api/v1/files') {
-      const name = String(url.searchParams.get('name') || '').trim()
-      if (!name || name.includes('..') || name.includes('/') || name.includes('\\') || name.includes('\0')) {
-        sendError(response, 400, 'validation_error', '文件名不合法', currentCorrelationId)
+      const located = resolveWorkspaceTarget(await resolveFileRoot(url.searchParams.get('sessionId')), url.searchParams.get('path') || url.searchParams.get('name'))
+      if (located.error) {
+        sendError(response, 400, 'validation_error', located.error, currentCorrelationId)
         return
       }
-      const root = await resolveFileRoot(url.searchParams.get('sessionId'))
-      const target = resolve(join(root, name))
-      if (target !== root && !target.startsWith(root + sep)) {
-        sendError(response, 400, 'validation_error', '路径越出工作区', currentCorrelationId)
+      try {
+        const info = await lstat(located.abs)
+        if (info.isDirectory()) await rm(located.abs, { recursive: true, force: false })
+        else await unlink(located.abs)
+      } catch (error) {
+        if (error && error.code === 'ENOENT') {
+          sendError(response, 404, 'not_found', '找不到这个路径', currentCorrelationId)
+          return
+        }
+        sendError(response, 400, 'validation_error', error instanceof Error ? error.message : '删除失败', currentCorrelationId)
         return
       }
-      await unlink(target)
-      sendJson(response, 200, { data: { path: name }, correlationId: currentCorrelationId })
+      sendJson(response, 200, { data: { path: located.rel }, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/files/move') {
+      const body = await readJson(request)
+      const root = await resolveFileRoot(body.sessionId)
+      const from = resolveWorkspaceTarget(root, body.from || body.path)
+      const to = resolveWorkspaceTarget(root, body.to)
+      if (from.error || to.error) {
+        sendError(response, 400, 'validation_error', from.error || to.error, currentCorrelationId)
+        return
+      }
+      if (from.rel === to.rel) {
+        sendJson(response, 200, { data: { path: to.rel, from: from.rel }, correlationId: currentCorrelationId })
+        return
+      }
+      if (isSelfOrDescendant(from.rel, to.rel) || isSelfOrDescendant(from.rel, parentRel(to.rel))) {
+        sendError(response, 400, 'validation_error', '不能移到自己里面', currentCorrelationId)
+        return
+      }
+      const destParent = resolveWorkspaceDir(root, parentRel(to.rel))
+      if (destParent.error) {
+        sendError(response, 400, 'validation_error', destParent.error, currentCorrelationId)
+        return
+      }
+      try {
+        await lstat(from.abs)
+        await lstat(destParent.abs)
+        if (existsSync(to.abs)) {
+          sendError(response, 409, 'already_exists', '已有同名文件或文件夹', currentCorrelationId)
+          return
+        }
+        await rename(from.abs, to.abs)
+      } catch (error) {
+        if (error && error.code === 'ENOENT') {
+          sendError(response, 404, 'not_found', '找不到这个路径', currentCorrelationId)
+          return
+        }
+        sendError(response, 400, 'validation_error', error instanceof Error ? error.message : '移动失败', currentCorrelationId)
+        return
+      }
+      sendJson(response, 200, { data: { path: to.rel, from: from.rel }, correlationId: currentCorrelationId })
+      return
+    }
+
+    if (request.method === 'POST' && url.pathname === '/api/v1/files/copy') {
+      const body = await readJson(request)
+      const root = await resolveFileRoot(body.sessionId)
+      const from = resolveWorkspaceTarget(root, body.from || body.path)
+      const to = resolveWorkspaceTarget(root, body.to)
+      if (from.error || to.error) {
+        sendError(response, 400, 'validation_error', from.error || to.error, currentCorrelationId)
+        return
+      }
+      if (from.rel === to.rel || isSelfOrDescendant(from.rel, to.rel) || isSelfOrDescendant(from.rel, parentRel(to.rel))) {
+        sendError(response, 400, 'validation_error', '不能复制到自己里面', currentCorrelationId)
+        return
+      }
+      const destParent = resolveWorkspaceDir(root, parentRel(to.rel))
+      if (destParent.error) {
+        sendError(response, 400, 'validation_error', destParent.error, currentCorrelationId)
+        return
+      }
+      try {
+        await lstat(from.abs)
+        await lstat(destParent.abs)
+        if (existsSync(to.abs)) {
+          sendError(response, 409, 'already_exists', '已有同名文件或文件夹', currentCorrelationId)
+          return
+        }
+        await cp(from.abs, to.abs, { recursive: true, errorOnExist: true, force: false })
+      } catch (error) {
+        if (error && error.code === 'ENOENT') {
+          sendError(response, 404, 'not_found', '找不到这个路径', currentCorrelationId)
+          return
+        }
+        sendError(response, 400, 'validation_error', error instanceof Error ? error.message : '复制失败', currentCorrelationId)
+        return
+      }
+      sendJson(response, 201, { data: { path: to.rel, from: from.rel }, correlationId: currentCorrelationId })
       return
     }
 

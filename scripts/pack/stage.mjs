@@ -30,7 +30,14 @@ const resourcesRoot = process.env.FDE_PACK_OUT
   ? resolve(process.env.FDE_PACK_OUT)
   : join(repoRoot, 'resources')
 const appRoot = join(resourcesRoot, 'app')
-const runtimeKey = `${process.platform}-${process.arch}`
+
+export function packPlatformKey(env = process.env) {
+  const platform = String(env.FDE_PACK_PLATFORM || process.platform)
+  const arch = String(env.FDE_PACK_ARCH || process.arch)
+  return { platform, arch, runtimeKey: `${platform}-${arch}` }
+}
+
+const { platform: packPlatform, arch: packArch, runtimeKey } = packPlatformKey()
 
 const vendorDir = process.env.FDE_VENDOR_DIR || join(homedir(), '.dsh', 'vendor')
 const semanticSrc = process.env.FDE_SEMANTIC_RUNTIME_SRC
@@ -70,17 +77,27 @@ function dshModuleEntry(treeRoot) {
 }
 
 async function ensureDshBinShim(treeRoot) {
-  if (dshBinPresent(treeRoot)) return true
   const entry = dshModuleEntry(treeRoot)
-  if (!entry) return false
+  if (!entry) return dshBinPresent(treeRoot)
   const binDir = join(treeRoot, 'bin')
   await mkdir(binDir, { recursive: true })
-  const rel = entry.startsWith(join(treeRoot, 'lib'))
+  const unixRel = entry.startsWith(join(treeRoot, 'lib'))
     ? '../lib/bin.js'
     : '../node_modules/@deepseek-ai/dsh/lib/bin.js'
+  const winRel = unixRel.replace(/\//g, '\\')
   const shim = join(binDir, 'dsh')
-  await symlink(rel, shim)
-  return true
+  if (!existsSync(shim)) {
+    try {
+      await symlink(unixRel, shim)
+    } catch {
+      await writeFile(shim, `#!/usr/bin/env node\nimport { pathToFileURL } from 'node:url'\nawait import(pathToFileURL(new URL('${unixRel}', import.meta.url)).href)\n`)
+    }
+  }
+  const cmd = join(binDir, 'dsh.cmd')
+  if (!existsSync(cmd)) {
+    await writeFile(cmd, `@echo off\r\nnode "%~dp0${winRel}" %*\r\n`)
+  }
+  return dshBinPresent(treeRoot)
 }
 
 async function stageDshFromNpm(dest, version) {
@@ -108,12 +125,26 @@ async function stageDshFromNpm(dest, version) {
     )}\n`,
   )
 
-  console.log(`[stage] npm i --omit=dev in ${work}`)
-  await execFile(
-    'npm',
-    ['i', '--omit=dev', '--no-audit', '--no-fund'],
-    { cwd: work, maxBuffer: 128 * 1024 * 1024 },
-  )
+  const npmArgs = ['i', '--omit=dev', '--no-audit', '--no-fund']
+  if (packPlatform !== process.platform) npmArgs.push('--ignore-scripts')
+  console.log(`[stage] npm ${npmArgs.join(' ')} in ${work} target=${runtimeKey}`)
+  await execFile('npm', npmArgs, { cwd: work, maxBuffer: 128 * 1024 * 1024 })
+  if (packPlatform !== process.platform) {
+    let koffiVer = '3.1.1'
+    try {
+      const koffiPkg = JSON.parse(await readFile(join(work, 'node_modules', 'koffi', 'package.json'), 'utf8'))
+      if (koffiPkg.version) koffiVer = koffiPkg.version
+    } catch {
+      /* koffi version from optional native package */
+    }
+    const native = `@koromix/koffi-${packPlatform}-${packArch}`
+    console.log(`[stage] npm i ${native}@${koffiVer} for cross-pack`)
+    await execFile(
+      'npm',
+      ['i', `${native}@${koffiVer}`, '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--force'],
+      { cwd: work, maxBuffer: 64 * 1024 * 1024 },
+    )
+  }
 
   await rm(dest, { recursive: true, force: true })
   await cp(work, dest, { recursive: true, dereference: true })
@@ -154,6 +185,10 @@ async function stageDsh(dest) {
       console.warn('[stage] npm dsh staging failed', error)
       if (process.env.CI === 'true') throw error
     }
+  }
+
+  if (packPlatform !== process.platform) {
+    throw new Error(`[stage] dsh staging failed for ${runtimeKey}; cannot reuse the host ${process.platform} tree`)
   }
 
   const localInstallRoots = [
@@ -222,7 +257,7 @@ async function extractNodeArchive(archivePath, dest) {
 }
 
 async function downloadNodeDist(dest) {
-  const archive = nodeDistArchiveName(NODE_DIST_VERSION)
+  const archive = nodeDistArchiveName(NODE_DIST_VERSION, packPlatform, packArch)
   const urls = nodeDistUrls(NODE_DIST_VERSION, archive)
   let body
   let used = urls[0]
@@ -242,8 +277,8 @@ async function downloadNodeDist(dest) {
   const archivePath = join(cacheDir, archive)
   await writeFile(archivePath, body)
   await extractNodeArchive(archivePath, dest)
-  if (!nodeDistPresent(dest)) {
-    throw new Error(`node dist missing bin/node after extract from ${used}`)
+  if (!nodeDistPresent(dest, packPlatform, { probe: packPlatform === process.platform })) {
+    throw new Error(`node dist missing launcher after extract from ${used}`)
   }
   console.log(`[stage] node ${NODE_DIST_VERSION} → ${dest}`)
   return true
@@ -259,7 +294,7 @@ async function writeStubNode(dest) {
 }
 
 async function stageNode(dest) {
-  if (process.env.FDE_RESTAGE_NODE !== '1' && nodeDistPresent(dest)) {
+  if (process.env.FDE_RESTAGE_NODE !== '1' && nodeDistPresent(dest, packPlatform, { probe: packPlatform === process.platform })) {
     console.log(`[stage] node already present ${dest}`)
     return true
   }
@@ -342,24 +377,49 @@ async function extractTarGz(archivePath, destDir) {
   await rm(staging, { recursive: true, force: true })
 }
 
+async function downloadSemanticReleaseFiles(cacheDir, archiveName) {
+  await mkdir(cacheDir, { recursive: true })
+  const repo = 'losebird/dsh-semantic-os'
+  const tag = SEMANTIC_RUNTIME.releaseTag
+  console.log(`[stage] gh release download ${tag} ${archiveName}`)
+  await execFile(
+    'gh',
+    ['release', 'download', tag, '--repo', repo, '--pattern', `${archiveName}*`, '--dir', cacheDir, '--clobber'],
+    { maxBuffer: 16 * 1024 * 1024 },
+  )
+}
+
 async function downloadSemanticRuntime(dest) {
-  const { releaseBaseUrl } = SEMANTIC_RUNTIME
-  const archiveName = `${runtimeKey}.tar.gz`
+  const { releaseBaseUrl, runtimeVersion } = SEMANTIC_RUNTIME
+  const archiveName = `dsh-semantic-os-${runtimeVersion}-${runtimeKey}.tar.gz`
   const archiveUrl = `${releaseBaseUrl}/${archiveName}`
   const shaUrl = `${archiveUrl}.sha256`
+  const cacheDir = join(resourcesRoot, '.pack-work', 'semantic')
+  const archivePath = join(cacheDir, archiveName)
+  const shaPath = join(cacheDir, `${archiveName}.sha256`)
 
   console.log(`[stage] download semantic runtime ${archiveUrl}`)
-  const shaText = await fetchText(shaUrl)
-  const expectedSha = parseSha256File(shaText)
-  const body = await fetchBuffer(archiveUrl)
+  let body
+  let shaText = ''
+  try {
+    shaText = await fetchText(shaUrl)
+    body = await fetchBuffer(archiveUrl)
+  } catch (error) {
+    console.warn('[stage] public download failed, trying gh', error.message || error)
+    await downloadSemanticReleaseFiles(cacheDir, archiveName)
+    if (existsSync(shaPath)) shaText = await readFile(shaPath, 'utf8')
+    if (!existsSync(archivePath)) throw new Error(`semantic runtime missing ${archivePath}`)
+    body = await readFile(archivePath)
+  }
   const actualSha = createHash('sha256').update(body).digest('hex')
-  if (actualSha !== expectedSha) {
-    throw new Error(`semantic runtime sha256 mismatch: expected ${expectedSha}, got ${actualSha}`)
+  if (shaText) {
+    const expectedSha = parseSha256File(shaText)
+    if (actualSha !== expectedSha) {
+      throw new Error(`semantic runtime sha256 mismatch: expected ${expectedSha}, got ${actualSha}`)
+    }
   }
 
-  const cacheDir = join(resourcesRoot, '.pack-work', 'semantic')
   await mkdir(cacheDir, { recursive: true })
-  const archivePath = join(cacheDir, archiveName)
   await writeFile(archivePath, body)
   await extractTarGz(archivePath, dest)
 
@@ -367,7 +427,7 @@ async function downloadSemanticRuntime(dest) {
     schemaVersion: 1,
     runtimeVersion: SEMANTIC_RUNTIME.runtimeVersion,
     key: runtimeKey,
-    manifestDigest: expectedSha,
+    manifestDigest: actualSha,
     installedAt: new Date().toISOString(),
   }
   await writeFile(join(resourcesRoot, 'semantic-runtime', 'current.json'), `${JSON.stringify(current, null, 2)}\n`)

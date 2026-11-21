@@ -49,7 +49,11 @@ export function ImRelayCard() {
       })
       apply(row)
       setCredsPath('')
-      setNote(row.configured ? (row.connected ? '中继已接通。' : '中继已保存，正在连接。') : '中继已关闭。只走局域网配对。')
+      setNote(
+        row.configured
+          ? (row.connected ? '中继已接通。' : (row.error ? `中继没连上：${row.error}` : '中继已保存，正在连接。'))
+          : '中继已关闭。只走局域网配对。',
+      )
     } catch (cause) {
       setNote(surfaceNote(cause, '中继没保存。'))
     } finally {

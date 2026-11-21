@@ -139,6 +139,29 @@ function jsonClone(value) {
   }
 }
 
+export async function setBackgroundPaused(paused) {
+  const on = Boolean(paused)
+  if (!runtime) return { ok: false, error: 'NOT_READY', paused: on }
+  try {
+    if (on) runtime.sessionIngest?.pause?.()
+    else runtime.sessionIngest?.resume?.()
+  } catch { /* ingest surface may be mid-tick */ }
+  try {
+    runtime.extractQueue?.setPaused?.(on)
+  } catch { /* extract queue optional */ }
+  let vectors = null
+  try {
+    vectors = await postPython(runtime.sidecar, {
+      op: 'pause_vectors',
+      cwd: FDE_AI_WORKSPACE || '',
+      args: { paused: on },
+    })
+  } catch (error) {
+    vectors = { error: error instanceof Error ? error.message : String(error) }
+  }
+  return { ok: true, paused: on, vectors }
+}
+
 function sessionIngestLocal(path) {
   const ingest = runtime?.sessionIngest
   if (path === '/session-ingest/now') {

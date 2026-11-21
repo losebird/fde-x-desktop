@@ -13,6 +13,8 @@ node scripts/pack/verify.mjs
 
 `pnpm --dir apps/desktop run pack:mac` runs `stage.mjs` first, then electron-builder. Do not pack from a stale `resources/` tree.
 
+`pnpm --dir apps/desktop run pack:win` stages `resources-win32-x64/` (`FDE_PACK_PLATFORM=win32`) then `electron-builder --win --x64` (NSIS + zip). It does not replace the Mac `resources/` tree. NSIS on macOS may need Wine; zip still works without it.
+
 
 `build-iui.mjs` stops before checkout when the `corepack` binary PATH will actually run is older than 0.31.0, including when a newer pnpm shim sits later on PATH. A pnpm shim is checked the same way when no `corepack` binary is on PATH. The check does not depend on the Node major. The Chinese message names the error the probe actually printed (`Cannot find matching keyid` or `ERR_VM_DYNAMIC_IMPORT_CALLBACK_MISSING`) and tells you to move `corepack`, `pnpm`, `pnpx`, `yarn`, and `yarnpkg` in that bin directory before `npm install -g pnpm@11.7.0`. Moving first avoids `EEXIST` when corepack and Node share one global bin. The script does not delete those files and does not switch to another toolchain. A real `pnpm` 11.x on `PATH` is used as-is. Check before a Mac self-pack:
 

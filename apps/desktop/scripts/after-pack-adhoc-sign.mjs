@@ -6,6 +6,7 @@ import { join } from 'node:path'
 const ID = 'com.fde-x.workstation'
 
 export default async function afterPack(context) {
+  if (context?.electronPlatformName && context.electronPlatformName !== 'darwin') return
   if (process.env.CSC_LINK) return
   if (process.env.CSC_IDENTITY_AUTO_DISCOVERY !== 'false') return
   const name = context?.packager?.appInfo?.productFilename || 'FDE-X'

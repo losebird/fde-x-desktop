@@ -604,3 +604,29 @@ test('tick releases running when readFrom hangs', async () => {
     assert.equal(ingest.kick().started, true)
   })
 })
+
+test('pause stops ingest ticks until resume', async () => {
+  let listed = 0
+  const ingest = createSessionIngest({
+    sidecar: { snapshot: () => ({ ready: true }) },
+    getPersistence: () => ({
+      list: async () => {
+        listed += 1
+        return []
+      },
+      readFrom: async () => '',
+    }),
+    getEyes: () => null,
+    getExtract: () => null,
+    extractQueue: { enqueue: () => undefined },
+    getConfig: () => ({ sessionIngestIntervalMin: 30 }),
+  })
+  ingest.pause()
+  const kicked = ingest.kick()
+  assert.equal(kicked.paused, true)
+  assert.equal(kicked.started, false)
+  await ingest.tick()
+  assert.equal(listed, 0)
+  ingest.resume()
+  ingest.pause()
+})

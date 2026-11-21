@@ -481,6 +481,7 @@ export function createSessionIngest(opts) {
   }
 
   async function tick(opts = {}) {
+    if (paused && !opts.force) return last
     if (running) return last
     const snap = sidecar.snapshot()
     if (!snap.ready) {
@@ -718,13 +719,28 @@ export function createSessionIngest(opts) {
     }
   }
 
+  let paused = false
+
   function start() {
     stop()
+    if (paused) return
     first = setTimeout(() => {
       first = null
+      if (paused) return
       void tick()
-      timer = setInterval(() => { void tick() }, intervalMs())
+      timer = setInterval(() => { if (!paused) void tick() }, intervalMs())
     }, 8_000)
+  }
+
+  function pause() {
+    paused = true
+    stop()
+  }
+
+  function resume() {
+    if (!paused) return
+    paused = false
+    start()
   }
 
   function reschedule() {
@@ -741,6 +757,7 @@ export function createSessionIngest(opts) {
   }
 
   function kick() {
+    if (paused) return { ok: true, started: false, paused: true, ...snapshot() }
     if (running) {
       if (startedAt && Date.now() - startedAt > deadlineMs + stepMs) {
         running = false
@@ -753,5 +770,5 @@ export function createSessionIngest(opts) {
     return { ok: true, started: true, ...snapshot() }
   }
 
-  return { tick, kick, start, stop, reschedule, snapshot }
+  return { tick, kick, start, stop, pause, resume, reschedule, snapshot }
 }

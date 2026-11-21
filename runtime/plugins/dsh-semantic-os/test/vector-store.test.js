@@ -188,6 +188,37 @@ print(json.dumps({
   assert.equal(got.old_gone, true)
 })
 
+test('delta keeps going when delete_vectors fails instead of a full rebuild', () => {
+  const out = py(`
+import json, sys, tempfile
+from types import SimpleNamespace
+sys.path.insert(0, "python")
+from stores import rebuild_vectors, _sync_vectors
+
+cwd = tempfile.mkdtemp(prefix="dsos-delta-fail-")
+graph = SimpleNamespace(nodes={
+  "n-keep": {"content": "型进语义，行走连接器现查"},
+  "n-old": {"content": "旧文案要被换掉"},
+})
+rebuild_vectors(cwd, graph)
+import stores
+stores._open_doc_vs(cwd).delete_vectors = lambda _ids: (_ for _ in ()).throw(RuntimeError("nope"))
+delta = stores._sync_vectors(cwd, ["n-keep", "n-new"], [
+  "n-keep\\n型进语义，行走连接器现查",
+  "n-new\\n不镜像权限内数据",
+])
+print(json.dumps({
+  "mode": delta.get("mode"),
+  "delete_failed": delta.get("delete_failed"),
+  "added": delta.get("added"),
+}))
+`)
+  const got = JSON.parse(out)
+  assert.equal(got.mode, 'delta')
+  assert.equal(got.delete_failed, true)
+  assert.equal(got.added, 1)
+})
+
 test('collect skips archived nodes so delete can prune the index', () => {
   const out = py(`
 import json, sys

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { execFile as execFileCb, spawn } from 'node:child_process'
-import { dirname, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 import { parseCodesigningIdentities, packMacSignEnv, pickDeveloperIdApplication, notarizeEnvPresent } from './mac-identity.mjs'
@@ -56,7 +56,10 @@ async function main() {
 
   const child = spawn(steps.builder.cmd, steps.builder.args, {
     cwd: steps.builder.cwd,
-    env: packed.env,
+    env: {
+      ...packed.env,
+      FDE_ELECTRON_RESOURCES: packed.env.FDE_ELECTRON_RESOURCES || relative(desktopRoot, resolve(repoRoot, 'resources')),
+    },
     stdio: 'inherit',
   })
   const code = await new Promise((resolveExit) => child.on('exit', resolveExit))

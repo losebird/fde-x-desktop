@@ -159,8 +159,15 @@ export function createExtractQueue({
     return idleAt === 0
   }
 
+  let paused = false
+
+  function setPaused(next) {
+    paused = Boolean(next)
+    if (!paused && !stopped) kick()
+  }
+
   function kick(ms) {
-    if (stopped) return
+    if (stopped || paused) return
     const delay = ms == null ? 400 : Math.max(0, Number(ms) || 0)
     if (timer && ms == null) return
     if (timer) clearTimeout(timer)
@@ -212,7 +219,7 @@ export function createExtractQueue({
           await store.requeueFailed('NOT_READY').catch(() => undefined)
         }
       }
-      while (!stopped) {
+      while (!stopped && !paused) {
         if (chatBusy()) {
           await new Promise((resolve) => setTimeout(resolve, 800))
           continue
@@ -320,6 +327,7 @@ export function createExtractQueue({
   }
 
   async function backfill(cwd) {
+    if (paused) return { ok: false, count: 0, paused: true }
     const key = String(cwd || '')
     if (!key) return { ok: false, count: 0 }
     try {
@@ -358,5 +366,6 @@ export function createExtractQueue({
     markIdle,
     markBusy,
     kick,
+    setPaused,
   }
 }

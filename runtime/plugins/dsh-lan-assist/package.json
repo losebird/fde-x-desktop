@@ -39,6 +39,7 @@
     "lan.js",
     "transport.js",
     "nats-relay.js",
+    "nats-connect.js",
     "mail-proj.js",
     "listen.js",
     "semantic.js",
@@ -99,7 +100,8 @@
     "@deepseek-ai/dsh-tools": "*"
   },
   "dependencies": {
-    "nats": "2.29.3"
+    "nats": "2.29.3",
+    "nats.ws": "1.30.3"
   },
   "engines": {
     "node": ">=20"

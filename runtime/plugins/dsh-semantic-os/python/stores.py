@@ -219,6 +219,9 @@ _VECTOR_MEM: dict[str, Any] = {}
 _VECTOR_LOCK = threading.Lock()
 _VECTOR_PENDING: dict[str, tuple[list[str], list[str]]] = {}
 _VECTOR_RUNNING: set[str] = set()
+_VECTOR_PAUSED = False
+_VECTOR_WAKE = threading.Event()
+_VECTOR_WAKE.set()
 _VECTOR_ERROR: dict[str, str] = {}
 
 
@@ -362,6 +365,7 @@ def _hash_map(ids: list[str], texts: list[str]) -> dict[str, str]:
 
 def _add_vector_docs(vs: Any, ids: list[str], texts: list[str]) -> None:
     for start in range(0, len(texts), 256):
+        _wait_if_paused()
         batch_ids = ids[start:start + 256]
         batch_texts = texts[start:start + 256]
         vs.add_documents(
@@ -415,15 +419,22 @@ def _sync_vectors(cwd: str, ids: list[str], texts: list[str]) -> dict[str, Any]:
     added = sorted(new_ids - old_ids)
     vs = _open_doc_vs(cwd)
     drop = removed + changed
+    dropped: list[str] = []
     if drop:
         try:
             vs.delete_vectors(drop)
+            dropped = drop
         except Exception:
-            return _rebuild_from_texts(cwd, ids, texts)
+            dropped = []
     upsert_ids = changed + added
     if upsert_ids:
         _add_vector_docs(vs, upsert_ids, [current[nid] for nid in upsert_ids])
-    _save_doc_vs(cwd, vs, ids, digest, hashes=hashes)
+    next_hashes = {nid: hashes[nid] for nid in ids}
+    if drop and not dropped:
+        for nid in drop:
+            if nid in old_hashes and nid not in next_hashes:
+                next_hashes[nid] = str(old_hashes.get(nid) or "")
+    _save_doc_vs(cwd, vs, ids, digest, hashes=next_hashes)
     return {
         **st,
         "count": len(ids),
@@ -432,12 +443,40 @@ def _sync_vectors(cwd: str, ids: list[str], texts: list[str]) -> dict[str, Any]:
         "mode": "delta",
         "added": len(added),
         "changed": len(changed),
-        "removed": len(removed),
+        "removed": len(dropped),
+        "delete_failed": bool(drop and not dropped),
     }
 
 
 def _vector_root(cwd: str) -> str:
     return os.path.realpath(cwd or "")
+
+
+def set_vector_paused(paused: bool) -> dict[str, Any]:
+    global _VECTOR_PAUSED
+    with _VECTOR_LOCK:
+        _VECTOR_PAUSED = bool(paused)
+        pending = list(_VECTOR_PENDING)
+        running = set(_VECTOR_RUNNING)
+        if _VECTOR_PAUSED:
+            _VECTOR_WAKE.clear()
+            starters: list[str] = []
+        else:
+            _VECTOR_WAKE.set()
+            starters = [root for root in pending if root not in running]
+            for root in starters:
+                _VECTOR_RUNNING.add(root)
+    for root in starters:
+        threading.Thread(target=_vector_worker, args=(root,), name=f"dsos-vec-{root[-8:]}", daemon=True).start()
+    return {"ok": True, "paused": bool(paused), "pending": len(pending)}
+
+
+def _wait_if_paused() -> None:
+    while True:
+        with _VECTOR_LOCK:
+            if not _VECTOR_PAUSED:
+                return
+        _VECTOR_WAKE.wait(0.25)
 
 
 def schedule_rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
@@ -446,15 +485,18 @@ def schedule_rebuild_vectors(cwd: str, graph: Any) -> dict[str, Any]:
     with _VECTOR_LOCK:
         _VECTOR_PENDING[root] = (ids, texts)
         if root in _VECTOR_RUNNING:
-            return {"ok": True, "queued": True, "merged": True, "cwd": root}
+            return {"ok": True, "queued": True, "merged": True, "cwd": root, "paused": _VECTOR_PAUSED}
+        if _VECTOR_PAUSED:
+            return {"ok": True, "queued": True, "merged": False, "cwd": root, "paused": True}
         _VECTOR_RUNNING.add(root)
     thread = threading.Thread(target=_vector_worker, args=(root,), name=f"dsos-vec-{root[-8:]}", daemon=True)
     thread.start()
-    return {"ok": True, "queued": True, "merged": False, "cwd": root}
+    return {"ok": True, "queued": True, "merged": False, "cwd": root, "paused": False}
 
 
 def _vector_worker(root: str) -> None:
     while True:
+        _wait_if_paused()
         with _VECTOR_LOCK:
             job = _VECTOR_PENDING.pop(root, None)
             if job is None:
